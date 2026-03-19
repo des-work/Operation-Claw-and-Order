@@ -1,0 +1,36 @@
+{
+  "_version": "1.0",
+  "phases": [
+    {
+      "phase": 1,
+      "label": "WAN and DMZ",
+      "start_day": 1,
+      "allowed_techniques": [
+        "port_scan", "service_fingerprint", "banner_grab",
+        "http_exploit", "ssh_brute", "default_creds",
+        "sqli", "cve_exploit_public", "heartbeat"
+      ],
+      "allowed_cidr_zones": ["wan", "dmz"]
+    },
+    {
+      "phase": 2,
+      "label": "Internal Pivot",
+      "start_day": 3,
+      "allowed_techniques": [
+        "lateral_movement", "smb_enum", "credential_reuse",
+        "internal_scan", "firewall_bypass", "heartbeat"
+      ],
+      "allowed_cidr_zones": ["wan", "dmz", "lan"]
+    },
+    {
+      "phase": 3,
+      "label": "LAN and Crown Jewels",
+      "start_day": 5,
+      "allowed_techniques": [
+        "hash_dump", "password_spray", "ad_escalation",
+        "data_exfil", "persistence", "heartbeat"
+      ],
+      "allowed_cidr_zones": ["wan", "dmz", "lan"]
+    }
+  ]
+}

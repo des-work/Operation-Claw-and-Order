@@ -1,0 +1,14 @@
+{
+  "_comment": "Copy to config.json. Set bearer_token to the token issued for THIS VM only.",
+  "backend_url": "http://10.50.0.1:8000",
+  "bearer_token": "REPLACE_WITH_TEAM_TOKEN",
+  "team_id": "REPLACE_WITH_TEAM_ID",
+  "telemetry_log": "/root/.openclaw/logs/telemetry.jsonl",
+  "retry_buffer": "/tmp/claw_retry_buffer.jsonl",
+  "phase_file": "/opt/claw/current_phase.json",
+  "technique_map": "/opt/claw/technique_map.json",
+  "heartbeat_interval_seconds": 60,
+  "phase_poll_interval_seconds": 300,
+  "retry_buffer_max_events": 500,
+  "post_timeout_seconds": 10
+}
