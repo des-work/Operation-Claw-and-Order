@@ -1,4 +1,4 @@
-# Operation Open Claw — Claw & Order
+# Operation Claw & Order
 
 > Automated scoring backend for the Spring 2026 university red-team/blue-team cybersecurity competition.
 
