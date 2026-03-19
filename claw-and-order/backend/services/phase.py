@@ -7,7 +7,7 @@ from typing import Any
 
 log = logging.getLogger("phase")
 
-_PHASES_PATH = Path(__file__).parent.parent.parent / "phase_config" / "phases.json"
+_PHASES_PATH = Path(__file__).parent.parent.parent / "config" / "phases.json"
 
 _phases: list[dict[str, Any]] = []
 _current_phase: int = 1
@@ -19,7 +19,7 @@ def load_phases() -> None:
     if not _PHASES_PATH.exists():
         log.error(
             "phases.json not found at %s — phase enforcement will reject all techniques. "
-            "Create phase_config/phases.json to fix this.",
+            "Create config/phases.json to fix this.",
             _PHASES_PATH,
         )
         _phases = []

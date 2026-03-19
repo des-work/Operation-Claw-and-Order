@@ -65,6 +65,10 @@ class TechniqueNormalizer:
                 return tech_id
         return self._fallback
 
+    def is_unknown(self, technique: str) -> bool:
+        """Return True if the technique is the fallback (unknown) value."""
+        return technique == self._fallback
+
 # ── HTTP helpers ──────────────────────────────────────────────────────────────
 _session = requests.Session()
 _session.headers.update({

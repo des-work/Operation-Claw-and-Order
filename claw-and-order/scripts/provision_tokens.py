@@ -2,7 +2,7 @@
 provision_tokens.py — Generate Bearer tokens for each team and write to DB.
 
 Usage:
-    python scripts/provision_tokens.py teams.json
+    python scripts/provision_tokens.py config/sample_teams.json
 
 teams.json format:
 [
@@ -19,7 +19,7 @@ teams.json format:
 Outputs:
   - Writes hashed tokens to the database (teams table)
   - Prints each team's plaintext token to stdout for secure delivery
-  - Generates a reporter config.json per team in ./output/
+  - Generates a reporter config.json per team in scripts/output/
 """
 
 import asyncio
@@ -59,7 +59,7 @@ async def main(teams_file: str):
     session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
     teams = json.loads(Path(teams_file).read_text())
-    output_dir = Path("output")
+    output_dir = Path(__file__).parent / "output"
     output_dir.mkdir(exist_ok=True)
 
     print(f"\n{'='*60}")
@@ -113,6 +113,6 @@ async def main(teams_file: str):
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
-        print("Usage: python scripts/provision_tokens.py teams.json")
+        print("Usage: python scripts/provision_tokens.py config/sample_teams.json")
         sys.exit(1)
     asyncio.run(main(sys.argv[1]))

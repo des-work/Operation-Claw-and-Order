@@ -5,12 +5,13 @@ import logging
 from datetime import datetime, timezone
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
+from backend.rate_limit import limiter
 from backend.models import Team, Event, Milestone, PhaseLog
 from backend.services.auth import validate_token
 from backend.services.milestone_detector import detect_milestone, calculate_score
@@ -60,7 +61,9 @@ def _validate_cidr(target_ip: str, team: Team, technique: str) -> None:
 
 
 @router.post("/api/events", status_code=201)
+@limiter.limit("60/minute")
 async def ingest_event(
+    request: Request,
     payload: EventIn,
     team: Team = Depends(validate_token),
     db: AsyncSession = Depends(get_db),
