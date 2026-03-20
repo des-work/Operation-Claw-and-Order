@@ -239,6 +239,12 @@ python scripts/reset_competition.py full
 - **[Architecture Spec](Claw_and_Order_v2_Definitive_Architecture.docx)** — Original design document
 - **[Gap Analysis](Claw_and_Order_PreBuild_Gap_Analysis.docx)** — Pre-build analysis
 
+### Weekly Updates
+
+| Week | Document | Summary |
+|------|----------|---------|
+| **Week 1** (Mar 16–22) | **[Week 1 Recap & Weekend Plan](claw-and-order/docs/week1-recap-and-weekend-plan.md)** | Backend build complete, reporter v2 shipped, 8 tasks for Thu–Sun before competition Monday |
+
 ---
 
 ## Tests
