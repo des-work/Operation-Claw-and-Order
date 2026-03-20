@@ -170,39 +170,36 @@ python reporter.py /path/to/config.json
 |------|-----|-----------|
 | 2026-03-19 | Wed | Built entire backend pipeline (phases A-D), wrote all 38 tests, ran 2 audit rounds, hardened for pen test week (WAL mode, rate limiting, CORS, global exception handler, PhaseLog seeding, VM watchdog, reporter is_unknown fix), reorganized project, wrote handoff doc, pushed to GitHub |
 | 2026-03-19 | Wed | Rewrote reporter.py: refactored from globals to Reporter class, added BackoffTracker (exponential 1s-60s cap), RetryBuffer class (in-memory line count, drain-on-reconnect only), consolidated duplicate TechniqueNormalizer into single source of truth, added SIGINT/SIGTERM graceful shutdown, heartbeats bypass backoff for fastest recovery. 16/16 normalizer tests + 38/38 backend tests passing |
-| 2026-03-20 | Thu | *Dashboard integration testing — coordinate with dashboard team on SSE stream format and CORS* |
-| 2026-03-21 | Fri | *Reporter deployment dry run — provision sample teams, deploy to test Kali VM, validate end-to-end event flow* |
-| 2026-03-22 | Sat | *Buffer day — stress test with 4 concurrent reporters, fix anything that breaks under load* |
-| 2026-03-23 | Sun | *Final review — verify Discord alerts, walk through competition-day runbook, backup procedures* |
-| 2026-03-24 | Mon | *Pen test week begins — Phase 1 (WAN and DMZ)* |
-| 2026-03-25 | Tue | *Phase 1 continues — monitor health endpoint, watch for reporter disconnects* |
-| 2026-03-26 | Wed | *Phase 2 transition (Internal Pivot) — POST /api/admin/phase with phase: 2* |
-| 2026-03-27 | Thu | *Phase 2 continues — watch for lateral_movement milestones* |
-| 2026-03-28 | Fri | *Phase 3 transition (LAN and Crown Jewels) — POST /api/admin/phase with phase: 3* |
-| 2026-03-29 | Sat | *Phase 3 continues — watch for domain_compromise milestones* |
-| 2026-03-30 | Sun | *Competition ends — pull final report CSV, debrief* |
 
-> *Italicized entries are planned, not yet completed.*
+> *See [Weekly Updates](#weekly-updates) for detailed plans per week.*
 
 ### Weekly Overview
 
-| Week | Focus | Deliverables |
-|------|-------|-------------|
-| **Week 1** (Mar 16–22) | Backend build + hardening + reporter rewrite | FastAPI server, all endpoints, auth, phase enforcement, milestones, SSE, Discord, reporter v2 (backoff, smart buffer, graceful shutdown), scripts, 38 backend tests + 16 normalizer tests, hardened for competition |
-| **Week 2** (Mar 23–29) | Competition week | Live monitoring, phase transitions, score tracking, incident response |
-| **Week 3** (Mar 30–) | Wrap-up | Final report, debrief, post-mortem |
+| Week | Dates | Focus | Deliverables |
+|------|-------|-------|-------------|
+| **Week 1** | Mar 16–22 | Backend build + hardening + reporter rewrite | FastAPI server, all endpoints, auth, phase enforcement, milestones, SSE, Discord, reporter v2 (backoff, smart buffer, graceful shutdown), scripts, 38 backend tests + 16 normalizer tests, hardened for competition |
+| **Week 2** | Mar 23–29 | Integration testing + cross-team sync | End-to-end integration test, confirm telemetry format with VM team, dashboard SSE payload sync |
+| **Week 3** | Mar 30 – Apr 5 | Reporter deployment + Discord setup | Deploy reporter to test Kali VM, Discord bot token + channel, real team definitions from instructor |
+| **Week 4** | Apr 6–12 | Stress testing + production hardening | Stress test with 4 concurrent reporters, tighten CORS, production .env, automated DB backup |
+| **Week 5** | Apr 13–19 | Dry run + polish | Full dress rehearsal (all teams, all phases), fix anything that breaks, finalize runbook |
+| **Week 6** | Apr 20–26 | Pre-competition lockdown | Final checklist, team config delivery, freeze code, backup procedures |
+| **Competition** | Apr 27 – May 3 | Pen test week | Phase 1 (days 1–2), Phase 2 (days 3–4), Phase 3 (days 5–6), final report + debrief |
 
 ### What's Left Before Competition
 
-| # | Item | Owner | Priority | Status |
-|---|------|-------|----------|--------|
-| 1 | Confirm OpenClaw telemetry JSONL format matches reporter's expected fields | Us + VM team | **Critical** | Not started |
-| 2 | End-to-end integration test (fake telemetry -> reporter -> backend -> SSE + Discord) | Us | **High** | Not started |
-| 3 | Real team definitions (IPs, CIDRs) from instructor | Us | **High** | Waiting |
-| 4 | Dashboard team sync on SSE event payloads | Us + Dashboard team | **High** | Not started |
-| 5 | Discord bot token + channel setup | Us | Medium | Not started |
-| 6 | Tighten CORS to dashboard origin | Us | Medium | Not started |
-| 7 | Stress test with 4 concurrent reporters | Us | Medium | Not started |
+| # | Item | Owner | Priority | Target Week | Status |
+|---|------|-------|----------|-------------|--------|
+| 1 | Confirm OpenClaw telemetry JSONL format matches reporter's expected fields | Us + VM team | **Critical** | Week 2 | Not started |
+| 2 | End-to-end integration test (fake telemetry -> reporter -> backend -> SSE + Discord) | Us | **Critical** | Week 2 | Not started |
+| 3 | Dashboard team sync on SSE event payloads | Us + Dashboard team | **High** | Week 2–3 | Not started |
+| 4 | Real team definitions (IPs, CIDRs) from instructor | Us | **High** | Week 3 | Waiting |
+| 5 | Discord bot token + channel setup | Us | **High** | Week 3 | Not started |
+| 6 | Reporter deployment dry run on test Kali VM | Us + VM team | **High** | Week 3 | Not started |
+| 7 | Stress test with 4 concurrent reporters | Us | Medium | Week 4 | Not started |
+| 8 | Tighten CORS to dashboard origin | Us | Medium | Week 4 | Not started |
+| 9 | Full dress rehearsal (all teams, all phases, end-to-end) | Everyone | **High** | Week 5 | Not started |
+| 10 | Automated DB backup script | Us | Medium | Week 4–5 | Not started |
+| 11 | Competition-day runbook walkthrough with team | Everyone | Medium | Week 5–6 | Not started |
 
 ---
 
@@ -243,7 +240,7 @@ python scripts/reset_competition.py full
 
 | Week | Document | Summary |
 |------|----------|---------|
-| **Week 1** (Mar 16–22) | **[Week 1 Recap & Weekend Plan](claw-and-order/docs/week1-recap-and-weekend-plan.md)** | Backend build complete, reporter v2 shipped, 8 tasks for Thu–Sun before competition Monday |
+| **Week 1** (Mar 16–22) | **[Week 1 Recap & Plan](claw-and-order/docs/week1-recap-and-weekend-plan.md)** | Backend build complete, reporter v2 shipped, integration testing plan for weeks 2–6 |
 
 ---
 
