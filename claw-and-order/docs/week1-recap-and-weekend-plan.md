@@ -1,7 +1,7 @@
 # Week 1 Recap & Plan (Mar 16 – Mar 22)
 
 **Created:** March 19, 2026 (Wednesday)
-**Competition starts:** ~Week of April 27 (5 weeks out)
+**Competition starts:** Week of April 7 (3 weeks out)
 
 ---
 
@@ -21,22 +21,19 @@
 
 ---
 
-## 5-Week Roadmap to Competition
+## 3-Week Roadmap to Competition
 
 | Week | Dates | Theme | Key Deliverables |
 |------|-------|-------|-----------------|
-| **2** | Mar 23–29 | Integration testing + cross-team sync | Confirm telemetry format, end-to-end test, dashboard SSE sync |
-| **3** | Mar 30 – Apr 5 | Reporter deployment + Discord | Deploy reporter to test VM, Discord bot setup, real team defs from instructor |
-| **4** | Apr 6–12 | Stress testing + production hardening | 4-reporter stress test, CORS lockdown, DB backup script |
-| **5** | Apr 13–19 | Full dress rehearsal | All teams, all phases, fix anything that breaks, finalize runbook |
-| **6** | Apr 20–26 | Pre-competition lockdown | Final checklist, config delivery to VMs, code freeze, backup procedures |
-| **Competition** | Apr 27 – May 3 | Pen test week | Phase 1 (days 1–2), Phase 2 (days 3–4), Phase 3 (days 5–6), final report |
+| **2** | Mar 23–29 | Integration testing + cross-team sync | Confirm telemetry format, end-to-end test, dashboard SSE sync, Discord bot setup |
+| **3** | Mar 30 – Apr 5 | Deployment + dress rehearsal + lockdown | Real team defs, reporter on Kali VM, stress test, CORS lockdown, DB backup, dress rehearsal, runbook walkthrough, code freeze |
+| **Competition** | Apr 7–13 | Pen test week | Phase 1 (days 1–2), Phase 2 (days 3–4), Phase 3 (days 5–6), final report |
 
 ---
 
 ## Week 2 Plan (Mar 23–29): Integration Testing & Cross-Team Sync
 
-This is the first priority — everything else builds on top of a working end-to-end pipeline.
+This week is about proving the pipeline works end-to-end and syncing with the other teams so they have time to integrate.
 
 ---
 
@@ -147,7 +144,7 @@ This is the first priority — everything else builds on top of a working end-to
 
 ### Task 3: Dashboard Team Sync on SSE Payloads
 
-**Why:** The dashboard team needs to know the exact JSON shape of SSE events to render them. Starting this conversation now gives them 4+ weeks to build their frontend.
+**Why:** The dashboard team needs to know the exact JSON shape of SSE events to render them. They have ~2 weeks to integrate.
 
 **Steps:**
 
@@ -159,7 +156,7 @@ This is the first priority — everything else builds on top of a working end-to
      "event_id": 1,
      "team_id": "red-1",
      "phase": 1,
-     "timestamp": "2026-04-27T10:30:00+00:00",
+     "timestamp": "2026-04-07T10:30:00+00:00",
      "technique": "port_scan",
      "target_ip": "10.50.1.100",
      "result": "success",
@@ -175,7 +172,7 @@ This is the first priority — everything else builds on top of a working end-to
      "score": 70,
      "phase": 1,
      "technique": "sqli",
-     "timestamp": "2026-04-27T10:35:00+00:00"
+     "timestamp": "2026-04-07T10:35:00+00:00"
    }
    ```
 
@@ -185,55 +182,15 @@ This is the first priority — everything else builds on top of a working end-to
    - `GET /api/phase` — current phase + allowed techniques
    - `GET /api/report/final` — ranked scoreboard
 4. Test CORS — have the dashboard team hit the backend from their frontend dev server. It should work (CORS is `*` currently).
-5. If they give you the dashboard's actual origin URL, note it for CORS lockdown in Week 4.
+5. If they give you the dashboard's actual origin URL, note it for CORS lockdown in Week 3.
 
 **Done when:** Dashboard team confirms they can connect to SSE and parse both event types.
 
 ---
 
-## Week 3 Plan (Mar 30 – Apr 5): Reporter Deployment & Discord
+### Task 4: Discord Bot Token and Channel Setup
 
-### Task 4: Get Real Team Definitions from Instructor
-
-**Why:** `config/sample_teams.json` has placeholder IPs. Real teams need real CIDRs or milestone detection and CIDR validation will reject everything.
-
-**Steps:**
-
-1. Get from the instructor for each team:
-   - `id` — team identifier (e.g., `"team-alpha"`)
-   - `display_name` — human-readable name
-   - `wan_ip` — the Kali VM's WAN-facing IP
-   - `dmz_cidr` — DMZ subnet (e.g., `"10.50.1.0/24"`)
-   - `lan_cidr` — LAN subnet (e.g., `"10.50.2.0/24"`)
-
-2. Create `config/teams_production.json` with the real data:
-   ```json
-   [
-     {
-       "id": "team-alpha",
-       "display_name": "Team Alpha",
-       "wan_ip": "X.X.X.X",
-       "dmz_cidr": "X.X.X.0/24",
-       "lan_cidr": "X.X.X.0/24"
-     }
-   ]
-   ```
-
-3. Re-provision:
-   ```bash
-   python scripts/reset_competition.py full
-   python scripts/provision_tokens.py config/teams_production.json
-   ```
-
-4. Securely deliver each team's `scripts/output/config_<team-id>.json` to its Kali VM.
-
-**Done when:** Production teams are in the DB with correct CIDRs and each VM has its config.
-
----
-
-### Task 5: Discord Bot Token and Channel Setup
-
-**Why:** Without this, milestone alerts and VM-offline warnings don't reach anyone during competition.
+**Why:** Without this, milestone alerts and VM-offline warnings don't reach anyone during competition. Setting it up now gives a full week to verify it works.
 
 **Steps:**
 
@@ -252,6 +209,30 @@ This is the first priority — everything else builds on top of a working end-to
 9. Test: trigger a milestone (use the fake telemetry flow from Task 2) and confirm the alert appears in the Discord channel
 
 **Done when:** Milestone alerts and VM-offline warnings appear in the Discord channel.
+
+---
+
+### Task 5: Start Getting Real Team Definitions from Instructor
+
+**Why:** `config/sample_teams.json` has placeholder IPs. Real teams need real CIDRs or milestone detection and CIDR validation will reject everything. Start the conversation now — you may not get the info until Week 3.
+
+**Steps:**
+
+1. Ask the instructor for each team:
+   - `id` — team identifier (e.g., `"team-alpha"`)
+   - `display_name` — human-readable name
+   - `wan_ip` — the Kali VM's WAN-facing IP
+   - `dmz_cidr` — DMZ subnet (e.g., `"10.50.1.0/24"`)
+   - `lan_cidr` — LAN subnet (e.g., `"10.50.2.0/24"`)
+2. Once received, create `config/teams_production.json` and provision — see Task 8 in Week 3.
+
+**Done when:** Request sent to instructor. Actual provisioning happens in Week 3.
+
+---
+
+## Week 3 Plan (Mar 30 – Apr 5): Deployment, Stress Test, Dress Rehearsal & Lockdown
+
+This is the final prep week. Everything needs to be production-ready by Sunday Apr 6.
 
 ---
 
@@ -278,8 +259,6 @@ This is the first priority — everything else builds on top of a working end-to
 **Done when:** Reporter runs on a real Kali VM and events reach the backend.
 
 ---
-
-## Week 4 Plan (Apr 6–12): Stress Testing & Production Hardening
 
 ### Task 7: Stress Test with 4 Concurrent Reporters
 
@@ -328,7 +307,38 @@ This is the first priority — everything else builds on top of a working end-to
 
 ---
 
-### Task 8: Tighten CORS to Dashboard Origin
+### Task 8: Provision Production Teams
+
+**Why:** By now you should have real team info from the instructor (requested in Task 5).
+
+**Steps:**
+
+1. Create `config/teams_production.json` with the real data:
+   ```json
+   [
+     {
+       "id": "team-alpha",
+       "display_name": "Team Alpha",
+       "wan_ip": "X.X.X.X",
+       "dmz_cidr": "X.X.X.0/24",
+       "lan_cidr": "X.X.X.0/24"
+     }
+   ]
+   ```
+
+2. Re-provision:
+   ```bash
+   python scripts/reset_competition.py full
+   python scripts/provision_tokens.py config/teams_production.json
+   ```
+
+3. Securely deliver each team's `scripts/output/config_<team-id>.json` to its Kali VM.
+
+**Done when:** Production teams are in the DB with correct CIDRs and each VM has its config.
+
+---
+
+### Task 9: Tighten CORS to Dashboard Origin
 
 **Why:** Production security — `allow_origins=["*"]` lets any site hit your API.
 
@@ -350,14 +360,14 @@ This is the first priority — everything else builds on top of a working end-to
 
 ---
 
-### Task 9: Automated DB Backup Script
+### Task 10: Automated DB Backup Script
 
-**Why:** If the SQLite DB corrupts or gets accidentally wiped mid-competition, you lose all scoring data. A periodic backup takes 30 minutes to write and saves the whole competition.
+**Why:** If the SQLite DB corrupts or gets accidentally wiped mid-competition, you lose all scoring data.
 
 **Steps:**
 
 1. Create `scripts/backup_db.py` that:
-   - Copies the `.db` file to a timestamped backup (e.g., `claw_and_order_2026-04-27_1430.db`)
+   - Copies the `.db` file to a timestamped backup (e.g., `claw_and_order_2026-04-07_1430.db`)
    - Keeps the last N backups (e.g., 10) and deletes older ones
    - Can be run manually or via cron/scheduled task
 2. Test: start the backend, ingest some events, run the backup, verify the backup file contains the data.
@@ -367,11 +377,9 @@ This is the first priority — everything else builds on top of a working end-to
 
 ---
 
-## Week 5 Plan (Apr 13–19): Full Dress Rehearsal
+### Task 11: Full Dress Rehearsal (Thu/Fri of Week 3)
 
-### Task 10: Full Dress Rehearsal
-
-**Why:** This is the last chance to find problems before the real competition. Simulate the entire competition flow in compressed time.
+**Why:** Last chance to find problems. Simulate the entire competition flow in compressed time.
 
 **Steps:**
 
@@ -399,7 +407,7 @@ This is the first priority — everything else builds on top of a working end-to
 
 ---
 
-### Task 11: Competition-Day Runbook Walkthrough
+### Task 12: Competition-Day Runbook Walkthrough (Sat/Sun of Week 3)
 
 **Why:** Everyone on the team should know the playbook — not just the person who built it.
 
@@ -421,9 +429,7 @@ This is the first priority — everything else builds on top of a working end-to
 
 ---
 
-## Week 6 Plan (Apr 20–26): Pre-Competition Lockdown
-
-### Final Checklist (run through before competition day)
+### Final Checklist (run through Sunday Apr 6 — day before competition)
 
 - [ ] Backend starts cleanly: `uvicorn backend.main:app --host 0.0.0.0 --port 8000`
 - [ ] `GET /api/health` returns `"status": "ok"`
@@ -452,10 +458,36 @@ This is the first priority — everything else builds on top of a working end-to
 | Risk | Impact | Mitigation | When to Address |
 |------|--------|------------|-----------------|
 | OpenClaw telemetry format doesn't match reporter expectations | **Show-stopper** — no events scored | Get a sample from VM team | Week 2 |
-| SQLite locks under 4+ concurrent writers | Events dropped or delayed | WAL mode + busy_timeout already in place; stress test validates | Week 4 |
+| SQLite locks under 4+ concurrent writers | Events dropped or delayed | WAL mode + busy_timeout already in place; stress test validates | Week 3 |
 | Reporter can't reach backend (network issue) | Events buffered, not lost | Backoff + retry buffer handles this; events replay on reconnect | Built in |
-| Dashboard can't parse SSE events | Dashboard shows nothing | Sync payload format with dashboard team | Week 2–3 |
-| Wrong CIDRs in team config | All events rejected with 403 | Get real values from instructor | Week 3 |
-| Discord bot token not set | No milestone/offline alerts | Set up Discord bot | Week 3 |
-| Backend crashes mid-competition | Scoring stops | Watchdog alerts Discord; restart with uvicorn; DB backup available | Week 4–5 |
-| DB corruption or accidental wipe | All scoring data lost | Automated backup script | Week 4 |
+| Dashboard can't parse SSE events | Dashboard shows nothing | Sync payload format with dashboard team | Week 2 |
+| Wrong CIDRs in team config | All events rejected with 403 | Get real values from instructor | Week 2–3 |
+| Discord bot token not set | No milestone/offline alerts | Set up Discord bot | Week 2 |
+| Backend crashes mid-competition | Scoring stops | Watchdog alerts Discord; restart with uvicorn; DB backup available | Week 3 |
+| DB corruption or accidental wipe | All scoring data lost | Automated backup script | Week 3 |
+
+---
+
+## Week 2 Schedule
+
+| Day | Focus | Tasks |
+|-----|-------|-------|
+| **Mon Mar 23** | Integration | Task 1 (telemetry format — reach out to VM team), Task 2 (end-to-end test with fake telemetry) |
+| **Tue Mar 24** | Integration | Finish Task 2 if needed, start Task 3 (dashboard SSE sync) |
+| **Wed Mar 25** | Cross-team | Task 3 continued, Task 4 (Discord bot setup) |
+| **Thu Mar 26** | Cross-team | Task 4 continued (test Discord alerts), Task 5 (request team defs from instructor) |
+| **Fri Mar 27** | Polish | Fix any issues from integration testing, update docs if telemetry format changed |
+| **Sat–Sun** | Buffer | Catch up on anything that slipped |
+
+## Week 3 Schedule
+
+| Day | Focus | Tasks |
+|-----|-------|-------|
+| **Mon Mar 30** | Deployment | Task 6 (reporter on Kali VM), Task 8 (provision production teams if info received) |
+| **Tue Mar 31** | Stress | Task 7 (4 concurrent reporters), Task 9 (CORS lockdown) |
+| **Wed Apr 1** | Hardening | Task 10 (DB backup script), fix any issues from stress test |
+| **Thu Apr 2** | Dress rehearsal | Task 11 (full 3-phase simulation) |
+| **Fri Apr 3** | Dress rehearsal | Finish Task 11, fix anything that broke |
+| **Sat Apr 4** | Runbook | Task 12 (walkthrough with team) |
+| **Sun Apr 5** | Lockdown | Final checklist, code freeze, last backup |
+| **Mon Apr 7** | **Competition begins** | Phase 1 — WAN and DMZ |

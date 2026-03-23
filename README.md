@@ -178,12 +178,9 @@ python reporter.py /path/to/config.json
 | Week | Dates | Focus | Deliverables |
 |------|-------|-------|-------------|
 | **Week 1** | Mar 16–22 | Backend build + hardening + reporter rewrite | FastAPI server, all endpoints, auth, phase enforcement, milestones, SSE, Discord, reporter v2 (backoff, smart buffer, graceful shutdown), scripts, 38 backend tests + 16 normalizer tests, hardened for competition |
-| **Week 2** | Mar 23–29 | Integration testing + cross-team sync | End-to-end integration test, confirm telemetry format with VM team, dashboard SSE payload sync |
-| **Week 3** | Mar 30 – Apr 5 | Reporter deployment + Discord setup | Deploy reporter to test Kali VM, Discord bot token + channel, real team definitions from instructor |
-| **Week 4** | Apr 6–12 | Stress testing + production hardening | Stress test with 4 concurrent reporters, tighten CORS, production .env, automated DB backup |
-| **Week 5** | Apr 13–19 | Dry run + polish | Full dress rehearsal (all teams, all phases), fix anything that breaks, finalize runbook |
-| **Week 6** | Apr 20–26 | Pre-competition lockdown | Final checklist, team config delivery, freeze code, backup procedures |
-| **Competition** | Apr 27 – May 3 | Pen test week | Phase 1 (days 1–2), Phase 2 (days 3–4), Phase 3 (days 5–6), final report + debrief |
+| **Week 2** | Mar 23–29 | Integration testing + cross-team sync | Confirm telemetry format, end-to-end integration test, dashboard SSE payload sync, Discord bot setup |
+| **Week 3** | Mar 30 – Apr 5 | Deployment + dress rehearsal + lockdown | Real team defs, reporter on Kali VM, stress test, CORS lockdown, DB backup script, full dress rehearsal, runbook walkthrough, code freeze |
+| **Competition** | Apr 7–13 | Pen test week | Phase 1 (days 1–2), Phase 2 (days 3–4), Phase 3 (days 5–6), final report + debrief |
 
 ### What's Left Before Competition
 
@@ -191,15 +188,15 @@ python reporter.py /path/to/config.json
 |---|------|-------|----------|-------------|--------|
 | 1 | Confirm OpenClaw telemetry JSONL format matches reporter's expected fields | Us + VM team | **Critical** | Week 2 | Not started |
 | 2 | End-to-end integration test (fake telemetry -> reporter -> backend -> SSE + Discord) | Us | **Critical** | Week 2 | Not started |
-| 3 | Dashboard team sync on SSE event payloads | Us + Dashboard team | **High** | Week 2–3 | Not started |
-| 4 | Real team definitions (IPs, CIDRs) from instructor | Us | **High** | Week 3 | Waiting |
-| 5 | Discord bot token + channel setup | Us | **High** | Week 3 | Not started |
+| 3 | Dashboard team sync on SSE event payloads | Us + Dashboard team | **Critical** | Week 2 | Not started |
+| 4 | Discord bot token + channel setup | Us | **High** | Week 2 | Not started |
+| 5 | Real team definitions (IPs, CIDRs) from instructor | Us | **High** | Week 2–3 | Waiting |
 | 6 | Reporter deployment dry run on test Kali VM | Us + VM team | **High** | Week 3 | Not started |
-| 7 | Stress test with 4 concurrent reporters | Us | Medium | Week 4 | Not started |
-| 8 | Tighten CORS to dashboard origin | Us | Medium | Week 4 | Not started |
-| 9 | Full dress rehearsal (all teams, all phases, end-to-end) | Everyone | **High** | Week 5 | Not started |
-| 10 | Automated DB backup script | Us | Medium | Week 4–5 | Not started |
-| 11 | Competition-day runbook walkthrough with team | Everyone | Medium | Week 5–6 | Not started |
+| 7 | Stress test with 4 concurrent reporters | Us | **High** | Week 3 | Not started |
+| 8 | Tighten CORS to dashboard origin | Us | **High** | Week 3 | Not started |
+| 9 | Automated DB backup script | Us | Medium | Week 3 | Not started |
+| 10 | Full dress rehearsal (all teams, all phases, end-to-end) | Everyone | **High** | Week 3 | Not started |
+| 11 | Competition-day runbook walkthrough with team | Everyone | Medium | Week 3 | Not started |
 
 ---
 
@@ -233,6 +230,7 @@ python scripts/reset_competition.py full
 ## Documentation
 
 - **[Technical Handoff](claw-and-order/docs/HANDOFF.md)** — Full architecture details, DB schema, hardening measures, critical rules
+- **[Discord Integration Guide](claw-and-order/docs/discord-integration-guide.md)** — Bot setup, architecture, FAQ, alert examples
 - **[Architecture Spec](Claw_and_Order_v2_Definitive_Architecture.docx)** — Original design document
 - **[Gap Analysis](Claw_and_Order_PreBuild_Gap_Analysis.docx)** — Pre-build analysis
 
@@ -240,7 +238,7 @@ python scripts/reset_competition.py full
 
 | Week | Document | Summary |
 |------|----------|---------|
-| **Week 1** (Mar 16–22) | **[Week 1 Recap & Plan](claw-and-order/docs/week1-recap-and-weekend-plan.md)** | Backend build complete, reporter v2 shipped, integration testing plan for weeks 2–6 |
+| **Week 1** (Mar 16–22) | **[Week 1 Recap & Plan](claw-and-order/docs/week1-recap-and-weekend-plan.md)** | Backend build complete, reporter v2 shipped, 11 tasks across weeks 2–3 before competition week (Apr 7) |
 
 ---
 
