@@ -4,6 +4,8 @@
 
 Teams deploy Kali Linux VMs to penetrate a target network across three timed phases. Claw & Order captures every action in real time, enforces competition rules, detects key milestones, calculates time-weighted scores, and pushes live updates to a dashboard and Discord.
 
+For the current two-repository release sequence, acceptance criteria, and rollback steps, use the [deployment readiness checklist](claw-and-order/docs/DEPLOYMENT.md). The historical schedule and handoff notes below are project background.
+
 ---
 
 ## Team Roles
@@ -60,7 +62,7 @@ Operation-Open-Claw/
     |   |   |-- admin.py         # Health, phase, teams, reports
     |   |   +-- stream.py        # GET /api/stream (SSE)
     |   +-- services/            # Business logic
-    |       |-- auth.py          # Bearer token + bcrypt
+    |       |-- auth.py          # Team scoped bearer token verification
     |       |-- phase.py         # Phase config + technique gating
     |       |-- sse.py           # SSE fan-out
     |       |-- discord_worker.py
@@ -142,6 +144,8 @@ The reporter runs on each Kali VM and is the bridge between OpenClaw tool output
 
 The scoring backend saves milestone, phase, and VM-offline Discord alerts in a database outbox. `/api/health` reports `discord_pending`; pending alerts retry after Discord or the backend restarts. The dashboard's Discord telemetry importer is separate and reads `[OCRT]` messages from configured channels. Adding a class or team requires provisioning its token and inventory; no fixed team count is built into the pipeline. Rerunning `scripts/provision_tokens.py` with an expanded team JSON creates tokens only for new teams and preserves existing tokens while updating their network metadata. Keep the generated config files secure; existing plaintext tokens cannot be recovered from the database.
 
+Scored events also enter `dashboard_outbox` in the event transaction. The dashboard reads them with a separate `EVENT_EXPORT_SECRET` and acknowledges each page after storage. This avoids missing events when concurrent database transactions commit out of ID order. `/api/health` reports `dashboard_pending` and the oldest pending age.
+
 **Usage:**
 ```bash
 # Default (reads config.json from same directory)
@@ -159,7 +163,7 @@ python reporter.py /path/to/config.json
 
 | Phase | What | Status |
 |-------|------|--------|
-| A | DB schema, auth (bcrypt + team_id hint), CIDR validation | Done |
+| A | DB schema, team scoped auth, CIDR validation | Done |
 | B | SSE streaming with bounded queues, keepalive | Done |
 | C | Phase enforcement from phases.json, milestone detection, time-weighted scoring | Done |
 | D | Discord bot integration, queue-based dispatch, reconnect guard | Done |

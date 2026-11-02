@@ -1,6 +1,7 @@
 """Database engine and session factory."""
 
 import logging
+import os
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from backend.config import DATABASE_URL
@@ -18,8 +19,8 @@ if _is_sqlite:
 else:
     # PostgreSQL pool tuning for competition load
     engine_kwargs = {
-        "pool_size": 10,
-        "max_overflow": 20,
+        "pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "2")),
         "pool_pre_ping": True,       # detect stale connections
         "pool_recycle": 1800,        # recycle connections every 30 min
     }

@@ -2,16 +2,19 @@ import json
 import os
 import sqlite3
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select, func, create_engine, text, inspect
 
 from backend.main import app, _migrate_event_source_id, _backfill_event_counts
-from backend.models import Event, TeamEventCount, DiscordOutbox
-from reporter.reporter import Reporter, RetryBuffer
+from backend.models import Event, TeamEventCount, DiscordOutbox, DashboardOutbox
+from backend.models import Team
+from backend.services import auth
+from reporter.reporter import Reporter, RetryBuffer, PermanentEventError
 from scripts.provision_tokens import main as provision_teams
-from tests.conftest import VALID_TOKEN, _session_factory
+from tests.conftest import VALID_TOKEN, TEST_ADMIN_SECRET, TEST_EXPORT_SECRET, _session_factory
 
 
 def test_retry_buffer_keeps_all_records_and_replays_in_order(tmp_path):
@@ -30,6 +33,43 @@ def test_retry_buffer_keeps_all_records_and_replays_in_order(tmp_path):
     assert buffer.drain(lambda item: sent.append(item["source_id"]) or True) == 3
     assert sent == ["2", "3", "4"]
     assert not path.exists()
+
+
+def test_permanent_rejection_is_audited_and_does_not_block_following_events(tmp_path):
+    path = tmp_path / "retry.jsonl"
+    buffer = RetryBuffer(str(path))
+    for source_id in ("bad", "good"):
+        buffer.append({"source_id": source_id})
+
+    def post(item):
+        if item["source_id"] == "bad":
+            raise PermanentEventError(422, "invalid payload")
+        return True
+
+    assert buffer.drain(post) == 1
+    assert not path.exists()
+    rejection = json.loads((tmp_path / "retry.jsonl.rejected.jsonl").read_text())
+    assert rejection["payload"]["source_id"] == "bad"
+    assert rejection["status_code"] == 422
+
+
+def test_reporter_classifies_permanent_and_retryable_http_errors(tmp_path):
+    cfg = {
+        "backend_url": "http://127.0.0.1:8000", "bearer_token": "test", "team_id": "team-1",
+        "telemetry_log": str(tmp_path / "telemetry.jsonl"),
+        "retry_buffer": str(tmp_path / "retry.jsonl"),
+        "technique_map": str(Path(__file__).parents[1] / "reporter" / "technique_map.json"),
+    }
+    reporter = Reporter(cfg)
+    reporter._session.post = lambda *args, **kwargs: SimpleNamespace(status_code=409, text="source conflict")
+    assert reporter.send_event({"source_id": "bad"}) is False
+    assert not reporter.buffer.has_content
+    assert json.loads((tmp_path / "retry.jsonl.rejected.jsonl").read_text())["status_code"] == 409
+
+    reporter._session.post = lambda *args, **kwargs: SimpleNamespace(status_code=401, text="invalid token")
+    assert reporter.send_event({"source_id": "retry"}) is False
+    assert reporter.buffer.has_content
+    assert json.loads((tmp_path / "retry.jsonl").read_text())["source_id"] == "retry"
 
 
 def test_existing_event_history_migrates_without_10k_cutoff():
@@ -130,3 +170,68 @@ async def test_duplicate_source_does_not_double_count_or_alert():
         assert await session.scalar(select(func.count()).select_from(Event)) == 1
         assert await session.scalar(select(TeamEventCount.event_count)) == 1
         assert await session.scalar(select(func.count()).select_from(DiscordOutbox)) == 1
+        assert await session.scalar(select(func.count()).select_from(DashboardOutbox)) == 1
+
+
+@pytest.mark.asyncio
+async def test_admin_event_export_is_authenticated_and_cursor_ordered():
+    payload = {
+        "team_id": "team-alpha", "command": "nmap 10.50.1.100", "technique": "port_scan",
+        "target_ip": "10.50.1.100", "result": "success", "source_id": "export-1",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        unauthorized = await client.get("/api/admin/events/export")
+        assert unauthorized.status_code == 422
+        admin_only = await client.get("/api/admin/events/export",
+                                      headers={"X-Admin-Secret": TEST_ADMIN_SECRET})
+        assert admin_only.status_code == 422
+        wrong_export = await client.get("/api/admin/events/export",
+                                        headers={"X-Export-Secret": "wrong"})
+        assert wrong_export.status_code == 401
+        await client.post("/api/events", headers={"Authorization": f"Bearer {VALID_TOKEN}"}, json=payload)
+        await client.post("/api/events", headers={"Authorization": f"Bearer {VALID_TOKEN}"},
+                          json={**payload, "source_id": "export-2"})
+        headers = {"X-Export-Secret": TEST_EXPORT_SECRET}
+        first = (await client.get("/api/admin/events/export?limit=1", headers=headers)).json()
+        replay = (await client.get("/api/admin/events/export?limit=1", headers=headers)).json()
+        ack = await client.post("/api/admin/events/ack", headers=headers,
+                                json={"event_ids": [first["events"][0]["id"]]})
+        second = (await client.get("/api/admin/events/export?limit=1", headers=headers)).json()
+        await client.post("/api/admin/events/ack", headers=headers,
+                          json={"event_ids": [second["events"][0]["id"]]})
+        drained = (await client.get("/api/admin/events/export", headers=headers)).json()
+    assert first["has_more"] is True
+    assert first["pending"] == 2
+    assert replay["events"][0]["id"] == first["events"][0]["id"]
+    assert ack.status_code == 200
+    assert len(first["events"]) == 1
+    assert len(second["events"]) == 1
+    assert second["events"][0]["id"] > first["events"][0]["id"]
+    assert "command" not in second["events"][0]
+    assert drained["pending"] == 0
+    async with _session_factory() as session:
+        assert await session.scalar(select(func.count()).select_from(DashboardOutbox)) == 2
+
+
+@pytest.mark.asyncio
+async def test_legacy_token_upgrades_once_then_uses_fast_verifier(monkeypatch):
+    payload = {
+        "team_id": "team-alpha", "command": "nmap 10.50.1.100", "technique": "port_scan",
+        "target_ip": "10.50.1.100", "result": "failure", "source_id": "token-upgrade-1",
+    }
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        first = await client.post("/api/events", headers={"Authorization": f"Bearer {VALID_TOKEN}"}, json=payload)
+        assert first.status_code == 201
+        async with _session_factory() as session:
+            team = await session.get(Team, "team-alpha")
+            assert team.bearer_token_hash.startswith("sha256:")
+
+        def should_not_check_bcrypt(*args):
+            raise AssertionError("bcrypt was called again")
+
+        monkeypatch.setattr(auth.bcrypt, "checkpw", should_not_check_bcrypt)
+        second = await client.post("/api/events", headers={"Authorization": f"Bearer {VALID_TOKEN}"},
+                                   json={**payload, "source_id": "token-upgrade-2"})
+        assert second.status_code == 201

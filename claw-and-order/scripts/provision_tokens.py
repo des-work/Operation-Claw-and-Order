@@ -31,7 +31,7 @@ import secrets
 import sys
 from pathlib import Path
 
-import bcrypt
+import hashlib
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -42,9 +42,9 @@ from backend.config import DATABASE_URL
 
 
 def generate_token() -> tuple[str, str]:
-    """Return (plaintext_token, bcrypt_hash)."""
+    """Return a random 256-bit token and its fast, constant-time verifier."""
     token = secrets.token_urlsafe(32)
-    hashed = bcrypt.hashpw(token.encode(), bcrypt.gensalt()).decode()
+    hashed = f"sha256:{hashlib.sha256(token.encode()).hexdigest()}"
     return token, hashed
 
 

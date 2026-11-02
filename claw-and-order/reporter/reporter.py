@@ -92,6 +92,15 @@ class BackoffTracker:
 
 # ── Retry buffer ──────────────────────────────────────────────────────────────
 
+class PermanentEventError(Exception):
+    """The backend rejected this event; retrying the same payload cannot help."""
+
+    def __init__(self, status_code: int, response: str):
+        self.status_code = status_code
+        self.response = response[:500]
+        super().__init__(f"HTTP {status_code}: {self.response}")
+
+
 class RetryBuffer:
     """Append-only JSONL buffer for events that failed to POST."""
 
@@ -122,6 +131,16 @@ class RetryBuffer:
             os.fsync(f.fileno())
         self._count += 1
 
+    def reject(self, payload: dict, error: PermanentEventError) -> None:
+        """Keep rejected telemetry for operator review without blocking later events."""
+        rejected = self._path.with_suffix(self._path.suffix + ".rejected.jsonl")
+        with rejected.open("a") as out:
+            out.write(json.dumps({"payload": payload, "status_code": error.status_code,
+                                  "response": error.response, "rejected_at": time.time()}) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+        log.error("Event permanently rejected (%s); saved to %s", error, rejected)
+
     def drain(self, post_fn) -> int:
         """Replay buffered events in order. Returns count of successfully drained events."""
         if not self._path.exists():
@@ -146,7 +165,12 @@ class RetryBuffer:
                         os.fsync(bad.fileno())
                     log.error("Moved corrupt retry record to %s.corrupt", self._path)
                     continue
-                if post_fn(payload):
+                try:
+                    accepted = post_fn(payload)
+                except PermanentEventError as error:
+                    self.reject(payload, error)
+                    continue
+                if accepted:
                     drained += 1
                 else:
                     failed = True
@@ -229,7 +253,7 @@ class Reporter:
     # ── HTTP ─────────────────────────────────────────────────────────────────
 
     def post_event(self, payload: dict) -> bool:
-        """POST to /api/events. Returns True on 2xx, False on failure."""
+        """POST an event; raise PermanentEventError for non-retryable responses."""
         return self._post("/api/events", payload)
 
     def _post(self, endpoint: str, payload: dict) -> bool:
@@ -241,6 +265,10 @@ class Reporter:
             )
             if r.status_code in (200, 201, 202):
                 return True
+            if r.status_code in (400, 403, 409, 413, 422):
+                raise PermanentEventError(r.status_code, r.text)
+            if r.status_code == 401:
+                log.error("Reporter credential rejected (HTTP 401); verify this team's token")
             log.warning("POST %s returned %d: %s", endpoint, r.status_code, r.text[:200])
             return False
         except requests.exceptions.RequestException as e:
@@ -355,7 +383,12 @@ class Reporter:
             self.backoff.record_success()
             return True
 
-        if self.post_event(payload):
+        try:
+            accepted = self.post_event(payload)
+        except PermanentEventError as error:
+            self.buffer.reject(payload, error)
+            return False
+        if accepted:
             self._events_sent += 1
             self.backoff.record_success()
             return True
@@ -411,11 +444,16 @@ class Reporter:
                 # Send health reports even during a flood of malformed or unrelated lines.
                 if now - last_heartbeat >= self.heartbeat_interval:
                     hb = self.build_heartbeat()
-                    if not self.post_event(hb):
+                    try:
+                        heartbeat_ok = self.post_event(hb)
+                    except PermanentEventError as error:
+                        self.buffer.reject(hb, error)
+                        heartbeat_ok = None
+                    if heartbeat_ok is False:
                         if not self.backoff.in_backoff:
                             self.backoff.record_failure()
                         log.warning("Heartbeat POST failed — backend may be down")
-                    else:
+                    elif heartbeat_ok:
                         reconnected = self.backoff.record_success()
                         if reconnected and self.buffer.has_content:
                             log.info("Heartbeat succeeded after outage — draining buffer")

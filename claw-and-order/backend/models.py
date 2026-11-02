@@ -15,7 +15,7 @@ class Team(Base):
     wan_ip = Column(Text, nullable=False)
     dmz_cidr = Column(Text, nullable=False)                   # e.g. '10.50.1.0/24'
     lan_cidr = Column(Text, nullable=False)                   # e.g. '10.50.2.0/24'
-    bearer_token_hash = Column(Text, nullable=False)          # bcrypt hash
+    bearer_token_hash = Column(Text, nullable=False)          # SHA-256 verifier or legacy bcrypt hash
     last_seen = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
@@ -55,6 +55,19 @@ class TeamEventCount(Base):
     event_count = Column(BigInteger, nullable=False, default=0)
 
 
+class DashboardOutbox(Base):
+    __tablename__ = "dashboard_outbox"
+    __table_args__ = (
+        Index("ix_dashboard_outbox_pending", "delivered_at", "event_id"),
+        Index("ix_dashboard_outbox_age", "delivered_at", "created_at"),
+    )
+
+    event_id = Column(Integer, ForeignKey("events.id"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), nullable=False,
+                        default=lambda: datetime.now(timezone.utc))
+    delivered_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class Milestone(Base):
     __tablename__ = "milestones"
     __table_args__ = (
@@ -91,7 +104,10 @@ class PhaseLog(Base):
 
 class DiscordOutbox(Base):
     __tablename__ = "discord_outbox"
-    __table_args__ = (Index("ix_discord_outbox_due", "sent_at", "next_attempt"),)
+    __table_args__ = (
+        Index("ix_discord_outbox_due", "sent_at", "next_attempt"),
+        Index("ix_discord_outbox_age", "sent_at", "created_at"),
+    )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     dedupe_key = Column(Text, unique=True, nullable=False)

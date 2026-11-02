@@ -1,0 +1,12 @@
+.git
+**/.env
+**/.env.*
+!**/.env.example
+**/__pycache__
+**/.pytest_cache
+**/.venv
+**/venv
+**/*.db
+**/*.sqlite*
+**/config_*.json
+**/current_phase.json

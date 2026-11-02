@@ -104,6 +104,17 @@ _dispatch_started: bool = False  # guard against duplicate loops on reconnect
 _worker_tasks: list[asyncio.Task] = []
 
 
+def connection_status() -> str:
+    """Report actual gateway/channel/dispatcher readiness for health checks."""
+    if not DISCORD_TOKEN:
+        return "disabled"
+    if bot.is_ready() and _channel is not None and _worker_tasks and all(
+        not task.done() for task in _worker_tasks
+    ):
+        return "connected"
+    return "disconnected"
+
+
 @bot.event
 async def on_ready():
     global _channel, _dispatch_started

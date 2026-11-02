@@ -16,6 +16,8 @@ VALID_HASH = bcrypt.hashpw(VALID_TOKEN.encode(), bcrypt.gensalt()).decode()
 # Set a known admin secret for tests
 TEST_ADMIN_SECRET = "test-admin-secret"
 os.environ["ADMIN_SECRET"] = TEST_ADMIN_SECRET
+TEST_EXPORT_SECRET = "test-export-secret"
+os.environ["EVENT_EXPORT_SECRET"] = TEST_EXPORT_SECRET
 
 _engine = create_async_engine("sqlite+aiosqlite://", connect_args={"timeout": 30})
 _session_factory = async_sessionmaker(_engine, class_=AsyncSession, expire_on_commit=False)

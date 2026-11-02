@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from sqlalchemy import inspect, text
 
@@ -28,12 +29,13 @@ logging.basicConfig(
 log = logging.getLogger("main")
 
 
-def _migrate_event_source_id(conn):
+def _migrate_event_source_id(conn, create_index=True):
     """Add retry IDs to existing databases; create_all only handles fresh tables."""
     columns = {column["name"] for column in inspect(conn).get_columns("events")}
     if "source_id" not in columns:
         conn.execute(text("ALTER TABLE events ADD COLUMN source_id TEXT"))
-    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_events_team_source ON events (team_id, source_id)"))
+    if create_index:
+        conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_events_team_source ON events (team_id, source_id)"))
 
 
 def _backfill_event_counts(conn):
@@ -47,13 +49,27 @@ from backend.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create tables on startup (dev/test with SQLite)
-    log.info("Creating database tables...")
+    production = os.getenv("APP_ENV") == "production"
+    if production and (not os.getenv("DATABASE_URL", "").startswith("postgresql+asyncpg://")
+                       or not os.getenv("ADMIN_SECRET")):
+        raise RuntimeError("Production requires a PostgreSQL asyncpg DATABASE_URL and ADMIN_SECRET")
+    log.info("Checking database schema..." if production else "Creating development database tables...")
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            await conn.run_sync(_migrate_event_source_id)
-            await conn.run_sync(_backfill_event_counts)
+        if production:
+            async with engine.connect() as conn:
+                for table in ("teams", "events", "team_event_counts", "discord_outbox",
+                              "dashboard_outbox", "phase_log"):
+                    await conn.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
+                valid = await conn.scalar(text(
+                    "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('uq_events_team_source')"
+                ))
+                if valid is not True:
+                    raise RuntimeError("Missing or invalid uq_events_team_source index; run python -m backend.migrate")
+        else:
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.run_sync(_migrate_event_source_id)
+                await conn.run_sync(_backfill_event_counts)
         log.info("Database tables ready")
     except Exception as e:
         log.error("Database initialization failed: %s", e)
@@ -102,10 +118,10 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # ── CORS middleware — dashboard may be on a different origin ──────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten to dashboard origin in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=[origin.strip() for origin in os.getenv("CORS_ORIGINS", "").split(",") if origin.strip()],
+    allow_credentials=False,
+    allow_methods=["GET", "POST"],
+    allow_headers=["Authorization", "Content-Type", "X-Admin-Secret"],
 )
 
 # ── Global exception handler — never leak raw tracebacks to clients ──────

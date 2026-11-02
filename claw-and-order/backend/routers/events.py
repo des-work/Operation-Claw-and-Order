@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database import get_db
 from backend.rate_limit import limiter, team_or_ip
-from backend.models import Team, Event, Milestone, PhaseLog
+from backend.models import Team, Event, Milestone, PhaseLog, DashboardOutbox
 from backend.services.auth import validate_token
 from backend.services.milestone_detector import detect_milestone, calculate_score
 from backend.services.phase import get_current_phase, is_technique_allowed
@@ -115,6 +115,7 @@ async def ingest_event(
         )
         db.add(event)
         await db.flush()  # get event.id for milestone FK
+        db.add(DashboardOutbox(event_id=event.id))
         await db.execute(text("INSERT INTO team_event_counts (team_id, event_count) VALUES (:team_id, 1) "
                               "ON CONFLICT (team_id) DO UPDATE SET "
                               "event_count = team_event_counts.event_count + 1"),
