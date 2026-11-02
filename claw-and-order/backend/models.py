@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, BigInteger, Text, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -29,6 +29,7 @@ class Team(Base):
 
 class Event(Base):
     __tablename__ = "events"
+    __table_args__ = (Index("uq_events_team_source", "team_id", "source_id", unique=True),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     team_id = Column(Text, ForeignKey("teams.id"), nullable=False)
@@ -44,6 +45,14 @@ class Event(Base):
     result = Column(Text, nullable=False)        # success / failure / blocked / timeout / heartbeat
     milestone = Column(Text, nullable=True)      # milestone key if triggered, else NULL
     raw_output = Column(Text, nullable=True)     # truncated to 2000 chars by reporter
+    source_id = Column(Text, nullable=True)      # stable reporter ID for retry deduplication
+
+
+class TeamEventCount(Base):
+    __tablename__ = "team_event_counts"
+
+    team_id = Column(Text, ForeignKey("teams.id"), primary_key=True)
+    event_count = Column(BigInteger, nullable=False, default=0)
 
 
 class Milestone(Base):
@@ -78,3 +87,19 @@ class PhaseLog(Base):
         default=lambda: datetime.now(timezone.utc),
     )
     activated_by = Column(Text, nullable=False)  # 'admin' or faculty username
+
+
+class DiscordOutbox(Base):
+    __tablename__ = "discord_outbox"
+    __table_args__ = (Index("ix_discord_outbox_due", "sent_at", "next_attempt"),)
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    dedupe_key = Column(Text, unique=True, nullable=False)
+    message_type = Column(Text, nullable=False)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False,
+                        default=lambda: datetime.now(timezone.utc))
+    next_attempt = Column(DateTime(timezone=True), nullable=False,
+                          default=lambda: datetime.now(timezone.utc))
+    attempts = Column(Integer, nullable=False, default=0)
+    sent_at = Column(DateTime(timezone=True), nullable=True)

@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import os
 
 from backend.database import get_db
-from backend.models import Team, Event, Milestone, PhaseLog
+from backend.models import Team, Event, TeamEventCount, Milestone, PhaseLog, DiscordOutbox
 from backend.services.phase import (
     get_current_phase,
     get_phase_config,
@@ -59,10 +59,13 @@ async def health_check(db: AsyncSession = Depends(get_db)):
     try:
         from sqlalchemy import text
         await db.execute(text("SELECT 1"))
+        discord_pending = await db.scalar(
+            select(func.count()).select_from(DiscordOutbox).where(DiscordOutbox.sent_at.is_(None)))
         db_ok = True
     except Exception as e:
         log.error("Health check DB query failed: %s", e)
         db_ok = False
+        discord_pending = None
 
     phase = get_current_phase()
     cfg = get_phase_config(phase)
@@ -75,6 +78,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "phase_label": cfg["label"] if cfg else "Unknown",
         "sse_clients": client_count(),
         "discord": "configured" if os.getenv("DISCORD_TOKEN") else "not configured",
+        "discord_pending": discord_pending,
     }
     if not db_ok:
         from fastapi.responses import JSONResponse
@@ -100,24 +104,22 @@ async def get_phase():
 @router.get("/api/teams")
 async def get_teams(db: AsyncSession = Depends(get_db)):
     teams = (await db.execute(select(Team))).scalars().all()
+    counts = dict((await db.execute(
+        select(TeamEventCount.team_id, TeamEventCount.event_count)
+    )).all())
+    milestones_by_team = {}
+    for milestone in (await db.execute(select(Milestone))).scalars():
+        milestones_by_team.setdefault(milestone.team_id, []).append(milestone)
     result = []
     for t in teams:
-        # Event count
-        event_count = await db.scalar(
-            select(func.count()).select_from(Event).where(Event.team_id == t.id)
-        )
-        # Milestones
-        milestones = (await db.execute(
-            select(Milestone).where(Milestone.team_id == t.id)
-        )).scalars().all()
-
+        milestones = milestones_by_team.get(t.id, [])
         total_score = sum(m.score for m in milestones)
 
         result.append({
             "id": t.id,
             "display_name": t.display_name,
             "last_seen": t.last_seen.isoformat() if t.last_seen else None,
-            "event_count": event_count,
+            "event_count": counts.get(t.id, 0),
             "total_score": total_score,
             "milestones": [
                 {
@@ -212,32 +214,27 @@ async def transition_phase(
             detail=f"Phase must be one of {sorted(valid_phase_nums)}",
         )
 
-    set_current_phase(body.phase)
-    load_phases()  # reload in case file was edited
-
     log_entry = PhaseLog(
         phase=body.phase,
         activated_by=body.activated_by,
     )
     db.add(log_entry)
-    await db.commit()
-    log.info("Phase transitioned to %d by %s", body.phase, body.activated_by)
-
+    await db.flush()
     cfg = get_phase_config(body.phase)
     phase_data = {
         "phase": body.phase,
         "label": cfg["label"] if cfg else "Unknown",
         "activated_at": log_entry.activated_at.isoformat(),
     }
+    discord_worker.queue_notification(db, {"type": "phase_change", "data": phase_data},
+                                      f"phase_log:{log_entry.id}")
+    await db.commit()
+    set_current_phase(body.phase)
+    load_phases()  # reload in case file was edited
+    log.info("Phase transitioned to %d by %s", body.phase, body.activated_by)
     try:
         await broadcast("phase_change", phase_data)
     except Exception as e:
         log.error("SSE broadcast failed on phase change: %s", e)
-
-    # D2: Notify Discord of phase transition
-    try:
-        await discord_worker.enqueue({"type": "phase_change", "data": phase_data})
-    except Exception as e:
-        log.error("Discord enqueue failed on phase change: %s", e)
 
     return {"status": "phase_changed", "phase": body.phase}

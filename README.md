@@ -134,10 +134,13 @@ The reporter runs on each Kali VM and is the bridge between OpenClaw tool output
 **Key features:**
 - **`Reporter` class** — all state encapsulated, config passed as dict (testable, no module-level globals)
 - **Exponential backoff** — on POST failures, backs off 1s -> 2s -> 4s -> ... capped at 60s. Resets on success. Prevents log spam and connection flooding when backend is down
-- **Smart retry buffer** — failed events saved to disk JSONL. Buffer drain only triggers on reconnect (not every POST). Line count tracked in memory, no full file re-read on append
+- **Durable retry buffer** — failed events are fsynced to disk JSONL and replayed in order; the 500-event setting raises an alert without dropping older records
+- **Restart-safe telemetry cursor** — the reporter resumes the saved log position after restart and uses a stable source ID so replay does not double count
 - **Single TechniqueNormalizer** — imported from `technique_normalizer.py` (one class, one place to maintain, 98 match rules, 16 self-tests)
 - **Graceful shutdown** — SIGINT/SIGTERM handled cleanly with summary stats (events sent vs buffered)
-- **Heartbeats bypass backoff** — health signal always attempts to reach backend; successful heartbeat during outage triggers buffer drain
+- **Heartbeats bypass backoff** — health signal always attempts to reach backend, including during non-tool telemetry; successful heartbeat during outage triggers buffer drain
+
+The scoring backend saves milestone, phase, and VM-offline Discord alerts in a database outbox. `/api/health` reports `discord_pending`; pending alerts retry after Discord or the backend restarts. The dashboard's Discord telemetry importer is separate and reads `[OCRT]` messages from configured channels. Adding a class or team requires provisioning its token and inventory; no fixed team count is built into the pipeline. Rerunning `scripts/provision_tokens.py` with an expanded team JSON creates tokens only for new teams and preserves existing tokens while updating their network metadata. Keep the generated config files secure; existing plaintext tokens cannot be recovered from the database.
 
 **Usage:**
 ```bash

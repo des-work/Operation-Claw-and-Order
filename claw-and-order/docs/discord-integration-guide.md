@@ -26,15 +26,15 @@ Claw & Order uses a single Discord bot to post real-time competition alerts to o
 ```
 Backend (FastAPI)
     |
-    |── events.py ──── milestone fires ──> enqueue({"type": "milestone", ...})
-    |── admin.py ───── phase change ────> enqueue({"type": "phase_change", ...})
-    |── watchdog.py ── VM offline ──────> enqueue({"type": "vm_offline", ...})
+    |── events.py ──── milestone fires ──> queue_notification()
+    |── admin.py ───── phase change ────> queue_notification()
+    |── watchdog.py ── VM offline ──────> queue_notification()
     |                                              |
     |                                              v
-    |                                     asyncio.Queue (in-memory)
+    |                                     discord_outbox (database)
     |                                              |
     |                                              v
-    |                                     _dispatch_loop() ── one message at a time
+    |                                     _outbox_loop() ── retry until delivered
     |                                              |
     |                                              v
     |                                     discord.TextChannel.send()
@@ -45,8 +45,8 @@ Backend (FastAPI)
 
 ### Key design points:
 
-- **One bot, one channel, one dispatch loop** — everything is serialized through a single `asyncio.Queue`
-- **Fire-and-forget from the API's perspective** — the event ingest endpoint enqueues a Discord message and immediately returns. If Discord is slow or down, scoring is unaffected
+- **One bot and one alert channel** — each alert is persisted in the same transaction as the scoring or phase change
+- **Retryable delivery** — the worker processes pending rows in order, with exponential backoff after a send failure
 - **No separate process** — the bot runs as an `asyncio.create_task()` inside the FastAPI lifespan. Starting the backend starts the bot. Stopping the backend stops the bot
 
 ---
@@ -135,15 +135,15 @@ DISCORD_CHANNEL_ID=1234567890123456789
 
 ### "Will we overload Discord with too many messages?"
 
-**No.** Discord allows 5 messages per 5 seconds per channel. Our bot sends at most ~20 messages across the entire 6-day competition:
+Alert volume grows with the number of teams. This bot sends milestones, phase changes, and offline notices rather than every tool event:
 
 | Event Type | When It Fires | Max Volume |
 |------------|---------------|------------|
-| Milestone alert | When a team hits a milestone (4 types per team) | ~16 total (4 milestones × 4 teams) |
+| Milestone alert | When a team hits a milestone (4 types per team) | Up to 4 per team |
 | Phase transition | When you manually advance the phase | Exactly 2 (phase 1→2, 2→3) |
 | VM offline | When a team's reporter is silent for 5+ min | 1 per outage per team |
 
-Even if all 4 teams triggered milestones in the same second, the `asyncio.Queue` serializes them one at a time, and discord.py's built-in rate limiter handles the rest.
+The database outbox sends alerts in order and retries failures with exponential backoff; discord.py also handles Discord rate limits.
 
 ### "Do we need one bot per team?"
 
@@ -151,7 +151,7 @@ Even if all 4 teams triggered milestones in the same second, the `asyncio.Queue`
 
 ### "What if Discord goes down during competition?"
 
-**Nothing breaks.** The bot catches `discord.HTTPException` in the dispatch loop (line 123 in `discord_worker.py`), logs the error, and moves on to the next message. Scoring, SSE streaming, and the dashboard all continue working independently. You just won't see Discord alerts until Discord comes back — and when it does, the bot auto-reconnects (the `on_ready` handler fires again, with a `_dispatch_started` guard to prevent duplicate dispatch loops).
+Scoring continues. Alerts stay in `discord_outbox` and retry after Discord returns or the backend restarts. Check `discord_pending` in `/api/health`; a growing value means delivery is delayed. Delivery is at least once: a crash after Discord accepts a message but before the database records success can cause a repeated alert.
 
 ### "What if we don't set the token before competition?"
 
@@ -159,7 +159,7 @@ Even if all 4 teams triggered milestones in the same second, the `asyncio.Queue`
 ```
 DISCORD_TOKEN not set — Discord worker disabled
 ```
-Events still get scored, SSE still streams, dashboard still works. You just don't get Discord alerts. You can add the token later and restart the backend to enable it mid-competition.
+Events still get scored and alerts remain pending in the database. Add the token later and restart the backend to deliver them.
 
 ### "Can the bot read our messages or other channels?"
 
@@ -184,7 +184,7 @@ Events still get scored, SSE still streams, dashboard still works. You just don'
 
 ### "Can we have separate channels for different alert types?"
 
-**Not currently**, but the code is structured to support it easily. Right now everything goes to one channel via `DISCORD_CHANNEL_ID`. To split by type, you'd add additional channel ID env vars (e.g., `DISCORD_MILESTONE_CHANNEL_ID`) and route in `_dispatch_loop()` based on `msg["type"]`. This is a nice-to-have, not a competition requirement.
+**Not currently.** Everything goes to one alert channel via `DISCORD_CHANNEL_ID`.
 
 ### "What if the bot disconnects from Discord's gateway?"
 
@@ -203,11 +203,11 @@ Discord reconnected — dispatch loop already running
 
 | File | What It Does |
 |------|-------------|
-| `backend/services/discord_worker.py` | Bot connection, dispatch loop, message formatting, queue, start/stop |
+| `backend/services/discord_worker.py` | Bot connection, durable outbox dispatch, retry, message formatting, start/stop |
 | `backend/config.py` | Reads `DISCORD_TOKEN` and `DISCORD_CHANNEL_ID` from `.env` |
 | `backend/main.py` | Starts bot in lifespan (`discord_worker.start()`), stops on shutdown |
-| `backend/routers/events.py` | Enqueues milestone alerts after a milestone fires |
-| `backend/routers/admin.py` | Enqueues phase transition alert after phase change |
-| `backend/services/watchdog.py` | Enqueues VM offline alert when a team goes silent |
-| `tests/test_d_discord.py` | 6 tests covering message formatting and queue ordering |
+| `backend/routers/events.py` | Saves milestone alerts with the event transaction |
+| `backend/routers/admin.py` | Saves phase alerts with the phase transition |
+| `backend/services/watchdog.py` | Saves VM offline alerts when a team goes silent |
+| `tests/test_d_discord.py`, `tests/test_discord_outbox.py` | Formatting and retry coverage |
 | `.env` | Where you put `DISCORD_TOKEN` and `DISCORD_CHANNEL_ID` |

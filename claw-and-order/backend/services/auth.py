@@ -48,6 +48,7 @@ async def validate_token(
         if team is not None:
             try:
                 if bcrypt.checkpw(raw_token.encode(), team.bearer_token_hash.encode()):
+                    request.state.authenticated_team_id = team.id
                     return team
             except (ValueError, TypeError) as e:
                 log.error("bcrypt check failed for team %s: %s", team_id_hint, e)
@@ -60,6 +61,7 @@ async def validate_token(
     for team in teams:
         try:
             if bcrypt.checkpw(raw_token.encode(), team.bearer_token_hash.encode()):
+                request.state.authenticated_team_id = team.id
                 return team
         except (ValueError, TypeError) as e:
             log.error("bcrypt check failed for team %s: %s", team.id, e)

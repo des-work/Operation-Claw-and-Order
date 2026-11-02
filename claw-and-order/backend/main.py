@@ -3,6 +3,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from sqlalchemy import inspect, text
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,21 @@ logging.basicConfig(
 )
 log = logging.getLogger("main")
 
+
+def _migrate_event_source_id(conn):
+    """Add retry IDs to existing databases; create_all only handles fresh tables."""
+    columns = {column["name"] for column in inspect(conn).get_columns("events")}
+    if "source_id" not in columns:
+        conn.execute(text("ALTER TABLE events ADD COLUMN source_id TEXT"))
+    conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_events_team_source ON events (team_id, source_id)"))
+
+
+def _backfill_event_counts(conn):
+    if conn.execute(text("SELECT 1 FROM team_event_counts LIMIT 1")).first() is None:
+        conn.execute(text("INSERT INTO team_event_counts (team_id, event_count) "
+                          "SELECT team_id, COUNT(*) FROM events GROUP BY team_id "
+                          "ON CONFLICT (team_id) DO NOTHING"))
+
 from backend.rate_limit import limiter
 
 
@@ -36,6 +52,8 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_migrate_event_source_id)
+            await conn.run_sync(_backfill_event_counts)
         log.info("Database tables ready")
     except Exception as e:
         log.error("Database initialization failed: %s", e)
