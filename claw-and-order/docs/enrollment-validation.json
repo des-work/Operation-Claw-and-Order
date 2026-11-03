@@ -3,7 +3,7 @@
   "scope": "Audited synthetic acceptance and human change workflow; school configuration and live pilot pending",
   "backend": {
     "command": "python -m pytest tests -q",
-    "passed": 93,
+    "passed": 94,
     "failed": 0,
     "local_python": "3.14",
     "container_and_ci_python": "3.12",
@@ -25,11 +25,12 @@
       "stale targeted-change and rollback conflict rejection",
       "immutable human reports, history and nonzero incomplete verification",
       "persisted phase restoration and verified remote database TLS",
-      "500-student preview query budget"
+      "500-student preview query budget",
+      "actual upload of delivered Excel template with two classes and an unassigned student"
     ]
   },
   "dashboard": {
-    "npm_test": "passed (4 test files)",
+    "npm_test": "passed (5 test files)",
     "npm_run_lint": "passed",
     "npm_run_build": "passed",
     "covers": [
@@ -40,7 +41,9 @@
       "no invented machine health",
       "existing event and topology behavior",
       "trusted origin and no credential redirects",
-      "bounded and redacted source responses"
+      "bounded and redacted source responses",
+      "exact webhook/channel/team source binding; ordinary user and cross-team claims rejected",
+      "original Discord posting timestamp preserved; late history cannot regress latest action"
     ]
   },
   "postgresql_16_two_database_rehearsal": {
@@ -63,7 +66,10 @@
     "real_emails_sent": 0,
     "script": "scripts/rehearse_enrollment.py",
     "planner_cli_human_approval_transfer": "passed",
-    "human_reports_saved": true
+    "human_reports_saved": true,
+    "shipped_excel_template_upload": "passed",
+    "actual_reporter_http": "passed",
+    "fresh_recheck": "2026-11-03; independent new databases; no live connections"
   },
   "container": {
     "build": "passed",
@@ -73,7 +79,8 @@
     "runtime_smoke": "network disabled, read-only filesystem, module imports and template presence passed",
     "local_private_files": "absent",
     "compose_schema": "passed with --no-env-resolution; services not started",
-    "systemd_templates": "not installed; target /opt/claw executables do not exist on this workstation"
+    "systemd_templates": "not installed; target /opt/claw executables do not exist on this workstation",
+    "scope": "Prior audited runtime image; backend application dependencies/runtime unchanged in this recheck. Rebuild from the delivered commit to include updated rehearsal script and documents."
   },
   "workbook": {
     "path": "templates/roster.xlsx",
@@ -93,8 +100,15 @@
     "real roster reconciliation",
     "production TLS, secret storage and access controls",
     "production-sized load and backup/restore rehearsal",
-    "real machine reporter deployment"
+    "real machine reporter deployment",
+    "inventory existing Kali publisher and actual message format",
+    "selected telemetry feed and exact Discord webhook/channel/team mappings; no overlapping imports"
   ],
   "audit_reference": "AUDIT-2026-11-03.md",
-  "scanner_reference": "audit-evidence.json"
+  "scanner_reference": "audit-evidence.json",
+  "existing_transport": {
+    "owner_confirmed": "Webhook or script on Kali",
+    "actual_script_inspected": false,
+    "infrastructure_reference": "OPERATION-OPEN-CLAW-INFRASTRUCTURE.md"
+  }
 }

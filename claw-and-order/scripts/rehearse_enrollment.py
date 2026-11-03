@@ -10,6 +10,7 @@ No real Discord or SMTP connection is made. No database is dropped or reset.
 
 import asyncio
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -95,7 +96,17 @@ def main():
                         term_id="2026F", class_id="A", team_id="ClassA_01", role_key="", idea="private idea", status="active")]
                     rows.append({**rows[0], "class_id": "B", "team_id": "ClassB_01"})
                     rows.append({**rows[0], "student_id": "synthetic-2", "email": "synthetic-2@college.example", "display_name": "Synthetic Two", "team_id": ""})
-                    preview = client.post("/api/admin/enrollment/imports", headers=admin, json={"rows": rows, "context": {"requested_by": "synthetic_operator", "reason": "Isolated PostgreSQL acceptance rehearsal"}})
+                    from openpyxl import load_workbook
+                    from backend.roster_input import FIELDS
+                    workbook = load_workbook(ROOT / "templates/roster.xlsx")
+                    for index, record in enumerate(rows, 2):
+                        for column, field in enumerate(FIELDS, 1):
+                            workbook["Roster"].cell(index, column, record[field])
+                    stream = io.BytesIO()
+                    workbook.save(stream)
+                    workbook.close()
+                    preview = client.post("/api/admin/enrollment/imports/file?filename=synthetic-roster.xlsx",
+                        headers={**admin, "X-Enrollment-Change": json.dumps({"requested_by": "synthetic_operator", "reason": "Isolated PostgreSQL acceptance rehearsal"})}, content=stream.getvalue())
                     preview.raise_for_status()
                     batch = preview.json()
                     private_write(report_dir / "01-roster-proposed.md", change_report(batch))
@@ -152,9 +163,12 @@ def main():
                     cli(["history", "--student-id", "synthetic-1", "--out", str(report_dir / "06-student-history.md")], planner_env)
                     verified = client.get(f"/api/admin/enrollment/imports/{move['batch_id']}/review", headers=admin).json()
                     require(verified["verification"]["outcome"] == "VERIFIED", "Transfer has no matching verification evidence")
-                    event = client.post("/api/events", headers={"Authorization": "Bearer " + token}, json={"team_id": "ClassA_01",
-                        "command": "nmap -sV 10.50.1.100", "technique": "port_scan", "target_ip": "10.50.1.100", "result": "success", "source_id": "synthetic:enrollment:1"})
-                    event.raise_for_status()
+                    from reporter.reporter import Reporter
+                    reporter = Reporter({"backend_url": "http://127.0.0.1:18080", "team_id": "ClassA_01", "bearer_token": token,
+                        "retry_buffer": str(Path(work) / "retry.jsonl"), "cursor_file": str(Path(work) / "cursor.json"), "phase_file": str(Path(work) / "phase.json")})
+                    event = reporter.build_event({"input": {"command": "nmap -sV 10.50.1.100", "target": "10.50.1.100"}, "success": True, "output": "Synthetic test result"},
+                        "port_scan", source_id="synthetic:enrollment:1")
+                    require(reporter.post_event(event), "Actual Kali reporter HTTP event was not accepted")
                     env = os.environ.copy()
                     env.update(DATABASE_URL=dashboard, BACKEND_EXPORT_URL="http://127.0.0.1:18080", BACKEND_EXPORT_SECRET=os.environ["EVENT_EXPORT_SECRET"])
                     result = subprocess.run(["node", str(ROOT / "scripts/verify_dashboard_enrollment.mjs")], env=env, cwd=ROOT, capture_output=True, text=True, check=True)
@@ -165,7 +179,8 @@ def main():
                     print(json.dumps({"postgresql": "migration_rerun_passed", "synthetic_students": 2, "enrollments": 3,
                         "registered_students": 1, "unassigned_students": 1, "preserved_unrelated_roles": True,
                         "real_discord_requests": 0, "real_emails_sent": 0, "backend_health": "healthy",
-                        "planner_cli_human_approval_transfer": "passed", "human_reports_saved": True}))
+                        "planner_cli_human_approval_transfer": "passed", "human_reports_saved": True,
+                        "shipped_excel_template_upload": "passed", "actual_reporter_http": "passed"}))
             finally:
                 process.terminate()
                 try:

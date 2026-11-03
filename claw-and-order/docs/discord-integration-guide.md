@@ -1,6 +1,8 @@
 # Discord handoff — current semester
 
-The preferred alert path uses Discord incoming webhook URLs. A bot token is unnecessary for webhook delivery. The backend receives telemetry directly from authenticated team reporters and exports it to the dashboard. Incoming Discord webhooks post into Discord; they cannot read channel history or supply machine health.
+The owner-confirmed existing Kali connection uses a webhook/script on Kali. Preserve and inventory it using [the infrastructure guide](OPERATION-OPEN-CLAW-INFRASTRUCTURE.md). The following backend configuration is the implemented central reporter/alert route; it is not evidence that this route is already installed on Cyberlabs.
+
+The preferred backend alert path uses Discord incoming webhook URLs. A bot token is unnecessary for webhook delivery. This backend route receives telemetry directly from authenticated team reporters and exports it to the dashboard. Incoming Discord webhooks post into Discord; they cannot read channel history, assign student roles or supply machine health.
 
 ## What to provide
 
@@ -35,7 +37,7 @@ If Discord fails, preserve the database queues and repair the hook; scoring and 
 
 ## Optional Discord telemetry reader
 
-Use the dashboard reader only for distinct `[OCRT]` telemetry that is not already exported by the scoring backend. It requires `DISCORD_BOT_TOKEN`, an explicit `ALLOWED_CHANNELS` list, View Channel, Read Message History, and Message Content intent. `DISCORD_INITIAL_BACKFILL=false` begins at new messages on first connection. Old channel IDs are never selected automatically. If the source exists only as Discord messages, this reader is still necessary; alert webhook URLs do not replace it.
+Use the dashboard reader for the existing Kali webhook feed if it posts the exact `[OCRT] team-id | Tool | Target | Result | Details` contract. Do not also export the same logical events from the scoring backend; the two source ID namespaces cannot deduplicate each other. The reader requires `DISCORD_BOT_TOKEN`, an explicit `ALLOWED_CHANNELS` list, `DISCORD_SOURCE_POLICY_FILE`, View Channel, Read Message History, and Message Content intent. The source policy binds exact channel/webhook IDs to exact team IDs (see dashboard `config/discord-sources.example.json`). Missing mappings stop startup; ordinary user/bot messages and cross-team claims are rejected. Imported timestamps retain Discord posting time. `DISCORD_INITIAL_BACKFILL=false` begins at new messages on first connection. Old channel IDs are never selected automatically. If the source exists only as Discord messages, this reader is necessary; posting webhook URLs do not replace it.
 
 ## Sources
 

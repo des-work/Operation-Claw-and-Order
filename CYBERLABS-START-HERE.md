@@ -4,6 +4,8 @@ This release connects student rosters, reviewed team/role assignments, private D
 
 ## Start with these files
 
+For Matthew's current delivery, begin with [implementation and setup](claw-and-order/docs/MATTHEW-IMPLEMENTATION.md), [existing Open Claw infrastructure](claw-and-order/docs/OPERATION-OPEN-CLAW-INFRASTRUCTURE.md), [launch checklist](claw-and-order/docs/MATTHEW-LAUNCH-CHECKLIST.md) and [sources/installed-inventory record](claw-and-order/docs/MATTHEW-SOURCES.md). The owner confirmed the existing Kali connection uses a webhook/script on Kali. Preserve it and verify its format; the reporter/backend route is an implemented option, not proof of the live installation.
+
 Start daily administration with [Human operations and change management](claw-and-order/docs/HUMAN-OPERATIONS.md). Give the future Cyberlabs agent the [Hermes planner instructions](claw-and-order/docs/HERMES-INSTRUCTIONS.md), with a separate planner OS account and credential. The [security/logic audit](claw-and-order/docs/AUDIT-2026-11-03.md) records findings, fixes, tests and remaining pilot gates.
 
 1. [Student enrollment operating guide](claw-and-order/docs/STUDENT-ENROLLMENT.md): architecture, configuration, exact commands, privacy boundaries, recovery, and acceptance checks.

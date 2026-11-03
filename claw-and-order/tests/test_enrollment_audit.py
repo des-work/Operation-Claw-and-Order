@@ -218,3 +218,29 @@ async def test_verification_exit_codes_never_report_waiting_as_success(enrollmen
     assert ops.main(["verify", "--batch-id", preview["batch_id"], "--out", str(tmp_path / "waiting.md")]) == 3
     monkeypatch.setattr(ops, "request_api", lambda *a, **k: {**preview, "verification": {"outcome": "BLOCKED", "students": []}})
     assert ops.main(["verify", "--batch-id", preview["batch_id"], "--out", str(tmp_path / "blocked.md")]) == 4
+
+
+@pytest.mark.asyncio
+async def test_delivered_excel_template_uploads_two_classes_and_unassigned_student(enrollment_setup):
+    import io
+    from openpyxl import load_workbook
+    from backend.roster_input import FIELDS
+    # Test fixture only: populate a temporary in-memory copy of the shipped template.
+    template = Path(__file__).parents[1] / "templates" / "roster.xlsx"
+    workbook = load_workbook(template)
+    records = [row(), row(cls="B", team="team-beta"), row("s2", team="")]
+    for index, record in enumerate(records, 2):
+        for column, field in enumerate(FIELDS, 1):
+            workbook["Roster"].cell(index, column, record[field])
+    content = io.BytesIO()
+    workbook.save(content)
+    workbook.close()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        headers = {"X-Admin-Secret": TEST_ADMIN_SECRET, "X-Enrollment-Change": json.dumps(CONTEXT)}
+        preview = await client.post("/api/admin/enrollment/imports/file?filename=roster.xlsx", headers=headers, content=content.getvalue())
+        assert preview.status_code == 200, preview.text
+        change = preview.json()
+        assert change["students"] == 2 and change["enrollments"] == 3 and change["unassigned"] == 1
+        applied = await client.post(f"/api/admin/enrollment/imports/{change['batch_id']}/apply", headers=headers,
+                                   json={"digest": change["digest"], "approved_by": "synthetic_admin"})
+        assert applied.status_code == 200
