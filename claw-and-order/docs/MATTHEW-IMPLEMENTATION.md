@@ -27,7 +27,7 @@ flowchart LR
 | Enrollment bot setup | A separate bot application's token, class/team/responsibility role IDs and private channel IDs; grant only the documented permissions. |
 | Faculty role decisions | Supply approved responsibility definitions/mappings when available. Leave responsibility blank until then; class/team enrollment can proceed. |
 
-The code, blank templates, administrator guide, Hermes instructions, recovery plans and audit evidence are included. Hosting and source configuration are installed by Cyberlabs; a local preview on port 5173 is not the production dashboard.
+Includes source, blank templates, administrator/Hermes guides, recovery plans and audit evidence. Cyberlabs installs hosting and source configuration; port 5173 is a local preview.
 
 <!-- pagebreak -->
 
@@ -97,6 +97,8 @@ If the original services are already deployed, validate and reuse them. Provisio
 | Discord alerts | One controlled event reaches only intended class destination(s), with a stored delivery receipt | Preserve the queue; correct routing or rotate a revoked hook with the same destination name. |
 | Machine gallery | A real authenticated report changes the correct machine indicator; stale/missing reports degrade or remain unknown | Repair the trusted probe/report producer. Attack events and Discord messages alone do not establish machine health. |
 | Recovery and scale | Production-sized restore and class-load/freshness targets in DEPLOYMENT.md pass with named owners | Hold full launch, preserve evidence and resolve the measured bottleneck. |
+
+<!-- pagebreak -->
 
 ## Daily changes remain visible
 

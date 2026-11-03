@@ -104,9 +104,30 @@ Trusted staff probes/integrations send authenticated POST /api/machines/heartbea
 4. Compare source events and dashboard records, then restart/replay in staging. Expand after the operator accepts the evidence.
 5. On failure, preserve both queues and restore the prior routing from the recorded boundary. Review already-imported events before resuming so rollback does not create a second copy. Leave the working Kali connection available until acceptance.
 
+<!-- pagebreak -->
+
 ## Evidence and limits
 
 - Current direct transport: project owner confirmation, November 3, 2026. Installed scripts/endpoints/payloads still require onsite inspection.
 - Implemented alternative: reporter/reporter.py, backend event/Discord workers and dashboard backend-sync.js; original definitive architecture is a design reference, not proof of installation.
 - Network/access context: reviewed Proxmox student guide, page 8, and historical Dogpark network/model appendices. No credentials or attack playbook copied into this delivery.
 - Official Discord webhook/Gateway behavior and source details are listed in guides/SOURCES.md. No native OpenClaw Discord adapter is asserted to be installed.
+
+## Installed inventory - complete privately
+
+Use this record for one representative publisher, then expand per team. Keep completed records in restricted institutional storage. Enter secret-store references only; never paste posting URLs/tokens, bot tokens or raw student activity into the report.
+
+| Field | Matthew or delegated operator records |
+| --- | --- |
+| Operator, inventory date and change reference | Pending onsite verification |
+| Kali VM, class and exact scoring-team ID | Pending onsite verification |
+| Script/service path, version and trigger | Pending onsite verification |
+| Input source, observed message format and formatter | Pending onsite verification |
+| Discord server, channel ID and webhook ID | Pending; IDs only |
+| Posting URL secret-store reference | Pending; no secret value |
+| Log, retry buffer, cursor and restart behavior | Pending observed evidence |
+| Selected dashboard feed and source policy revision | Pending operator selection |
+| Trusted machine-monitoring source and owner | Pending onsite verification |
+| Pilot event IDs, timestamps and acceptance | Pending controlled pilot |
+
+The full inventory template and source references also remain editable in guides/SOURCES.md. Record the cutover boundary and fallback routing before changing an existing publisher.
