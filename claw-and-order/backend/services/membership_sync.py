@@ -27,6 +27,10 @@ async def reconcile_external(adapter, policy, controlled, user_id, desired, reas
                 await adapter.remove_role(user_id, role_id, reason)
             for role_id in add:
                 await adapter.add_role(user_id, role_id, reason)
+            confirmed = await adapter.member_roles(user_id)
+            if confirmed & controlled != desired:
+                raise MembershipError("Discord read-back differs from approved managed roles")
+            await adapter.verify_access(user_id, desired)
             return remove, add
     except TimeoutError:
         raise MembershipError("Discord reconciliation timed out; retrying from actual membership") from None
@@ -67,8 +71,12 @@ async def sync_once(factory, policy, adapter):
                 session.add(ManagedDiscordGrant(student_id=student.id, guild_id=policy.guild_id, role_id=role_id))
             job.status, job.last_error, job.completed_at = "complete", None, now()
             audit(session, "discord_roles_reconciled", student.id, job.revision,
-                  guild_id=policy.guild_id, added=add, removed=remove, policy_hash=policy.digest)
+                  guild_id=policy.guild_id, added=add, removed=remove, policy_hash=policy.digest,
+                  verified=True, verified_role_ids=sorted(desired))
         except MembershipError as error:
+            if job.status != error.status or job.last_error != str(error):
+                audit(session, "discord_sync_deferred", student.id, job.revision,
+                      guild_id=policy.guild_id, status=error.status, explanation=str(error), policy_hash=policy.digest)
             job.status, job.last_error = error.status, str(error)
             job.attempts += 1
             job.next_attempt = now() + timedelta(seconds=300 if error.status == "awaiting_member" else min(2 ** min(job.attempts, 8), 300))

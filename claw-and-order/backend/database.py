@@ -2,6 +2,8 @@
 
 import logging
 import os
+import ssl
+from sqlalchemy.engine import make_url
 from sqlalchemy import event as sa_event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from backend.config import DATABASE_URL
@@ -28,7 +30,17 @@ else:
     safe_url = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
     log.info("Using PostgreSQL: ...@%s", safe_url)
 
-engine = create_async_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
+def verified_database_settings(database_url, production=False, ca_file=None):
+    url = make_url(database_url)
+    options = {}
+    if production and url.get_backend_name() == "postgresql" and url.host not in ("localhost", "127.0.0.1", "::1"):
+        url = url.difference_update_query(("ssl", "sslmode", "sslrootcert", "sslcert", "sslkey"))
+        options["ssl"] = ssl.create_default_context(cafile=ca_file or None)
+    return url, options
+
+
+database_url, tls_options = verified_database_settings(DATABASE_URL, os.getenv("APP_ENV") == "production", os.getenv("PG_CA_CERT_FILE"))
+engine = create_async_engine(database_url, connect_args={**connect_args, **tls_options}, **engine_kwargs)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 # ── SQLite WAL mode — critical for concurrent reporter writes ─────────────

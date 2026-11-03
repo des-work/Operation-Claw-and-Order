@@ -4,6 +4,8 @@ This release connects student rosters, reviewed team/role assignments, private D
 
 ## Start with these files
 
+Start daily administration with [Human operations and change management](claw-and-order/docs/HUMAN-OPERATIONS.md). Give the future Cyberlabs agent the [Hermes planner instructions](claw-and-order/docs/HERMES-INSTRUCTIONS.md), with a separate planner OS account and credential. The [security/logic audit](claw-and-order/docs/AUDIT-2026-11-03.md) records findings, fixes, tests and remaining pilot gates.
+
 1. [Student enrollment operating guide](claw-and-order/docs/STUDENT-ENROLLMENT.md): architecture, configuration, exact commands, privacy boundaries, recovery, and acceptance checks.
 2. [Role definitions to complete](claw-and-order/docs/ROLE-DEFINITIONS.md): the faculty's student role definitions are still required. No student responsibility roles are guessed or enabled by default.
 3. `claw-and-order/templates/roster.xlsx` or `roster.csv`: blank import templates. One row represents one student in one class for one term.

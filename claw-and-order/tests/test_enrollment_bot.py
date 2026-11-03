@@ -91,3 +91,20 @@ async def test_register_command_uses_interaction_identity_and_private_replies(en
         assert (await session.get(Student, "s1")).discord_user_id == USER
     assert replies and all(code not in message for message in replies)
     await bot.close()
+
+
+@pytest.mark.asyncio
+async def test_effective_member_permissions_detect_unmanaged_cross_team_leak(enrollment_setup):
+    policy = enrollment_setup
+    client = FakeClient(policy)
+    async def student(_):
+        return SimpleNamespace(id=int(USER))
+    adapter = DiscordMembershipAdapter(client, policy)
+    await adapter.validate(policy, policy.managed_roles)
+    client.guild.fetch_member = student
+    client.allowed["950000000000000001"].add(int(USER))
+    await adapter.verify_access(USER, {CLASS_A, TEAM_A})
+    client.allowed["950000000000000002"].add(int(USER))
+    with pytest.raises(MembershipError, match="Effective member") as failure:
+        await adapter.verify_access(USER, {CLASS_A, TEAM_A})
+    assert failure.value.status == "blocked_isolation"

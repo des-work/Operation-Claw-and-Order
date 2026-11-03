@@ -48,12 +48,29 @@ def _backfill_event_counts(conn):
 from backend.rate_limit import limiter
 
 
+async def restore_competition_phase(session):
+    from sqlalchemy import select
+    from backend.services.phase import get_phase_config, set_current_phase
+    latest = (await session.execute(select(PhaseLog).order_by(PhaseLog.activated_at.desc(), PhaseLog.id.desc()).limit(1))).scalar_one_or_none()
+    if latest is None:
+        latest = PhaseLog(phase=1, activated_by="system_startup")
+        session.add(latest)
+        await session.commit()
+    if get_phase_config(latest.phase) is None:
+        raise RuntimeError("Stored competition phase has no valid configuration; repair before startup")
+    set_current_phase(latest.phase)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     production = os.getenv("APP_ENV") == "production"
     if production and (not os.getenv("DATABASE_URL", "").startswith("postgresql+asyncpg://")
                        or not os.getenv("ADMIN_SECRET")):
         raise RuntimeError("Production requires a PostgreSQL asyncpg DATABASE_URL and ADMIN_SECRET")
+    if production:
+        credentials = [os.getenv(k) for k in ("ADMIN_SECRET", "EVENT_EXPORT_SECRET", "ENROLLMENT_PLANNER_SECRET") if os.getenv(k)]
+        if len(credentials) != len(set(credentials)) or any(len(value) < 32 for value in credentials):
+            raise RuntimeError("Production admin/export/planner credentials must be distinct random values of at least 32 characters")
     log.info("Checking database schema..." if production else "Creating development database tables...")
     try:
         if production:
@@ -79,20 +96,9 @@ async def lifespan(app: FastAPI):
         log.error("Database initialization failed: %s", e)
         raise
 
-    # Seed an initial PhaseLog row if none exists (accurate scoring baseline)
-    try:
-        async with async_session() as session:
-            from sqlalchemy import select, func
-            count = await session.scalar(select(func.count()).select_from(PhaseLog))
-            if count == 0:
-                session.add(PhaseLog(
-                    phase=get_current_phase(),
-                    activated_by="system_startup",
-                ))
-                await session.commit()
-                log.info("Seeded initial PhaseLog for phase %d", get_current_phase())
-    except Exception as e:
-        log.warning("Could not seed initial PhaseLog: %s", e)
+    async with async_session() as session:
+        await restore_competition_phase(session)
+    log.info("Restored competition phase %d", get_current_phase())
 
     # Start Discord bot as background task (never bot.run())
     discord_task = await discord_worker.start()
@@ -122,8 +128,32 @@ class EnrollmentBodyLimit:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/admin/enrollment") or scope.get("method") != "POST":
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/admin/enrollment"):
             return await self.app(scope, receive, send)
+        started = False
+        async def private_send(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+                headers = [(k, v) for k, v in message.get("headers", []) if k.lower() not in (b"cache-control", b"pragma")]
+                message = {**message, "headers": headers + [(b"cache-control", b"no-store"), (b"pragma", b"no-cache")]}
+            await send(message)
+        try:
+            if scope.get("method") != "POST":
+                return await self.app(scope, receive, private_send)
+            async with asyncio.timeout(30):
+                return await self._bounded(scope, receive, private_send)
+        except TimeoutError:
+            if not started:
+                await JSONResponse({"detail": "Enrollment request timed out; inspect the change before retrying"}, status_code=408)(scope, receive, private_send)
+        except Exception as error:
+            # SQLAlchemy errors can embed roster values. Contain them here before
+            # the outer ASGI server logs a traceback with bound SQL parameters.
+            log.error("Private enrollment request failed: %s", type(error).__name__)
+            if not started:
+                await JSONResponse({"detail": "Private enrollment operation failed; inspect change status before retrying"}, status_code=500)(scope, receive, private_send)
+
+    async def _bounded(self, scope, receive, send):
         from collections import deque
         from backend.roster_input import MAX_BYTES
         chunks, total = deque(), 0
@@ -143,6 +173,17 @@ class EnrollmentBodyLimit:
 
 
 app.add_middleware(EnrollmentBodyLimit)
+
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+
+
+@app.exception_handler(RequestValidationError)
+async def _private_validation_error(request, exc):
+    if request.url.path.startswith("/api/admin/enrollment"):
+        return JSONResponse(status_code=422, content={"detail": "Enrollment request validation failed; check required fields and formats",
+                            "fields": [list(error["loc"]) for error in exc.errors()]}, headers={"Cache-Control": "no-store"})
+    return await request_validation_exception_handler(request, exc)
 
 # ── Rate limiting middleware ──────────────────────────────────────────────
 app.state.limiter = limiter
@@ -178,4 +219,5 @@ app.include_router(events.router)
 app.include_router(stream.router)
 app.include_router(admin.router)
 app.include_router(enrollment.router)
+app.include_router(enrollment.admin_router)
 app.include_router(enrollment.export_router)

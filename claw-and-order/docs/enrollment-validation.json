@@ -1,19 +1,47 @@
 {
   "validated_on": "2026-11-03",
-  "scope": "Synthetic local acceptance; production configuration and school pilot pending",
+  "scope": "Audited synthetic acceptance and human change workflow; school configuration and live pilot pending",
   "backend": {
     "command": "python -m pytest tests -q",
-    "passed": 80,
+    "passed": 93,
     "failed": 0,
     "local_python": "3.14",
     "container_and_ci_python": "3.12",
-    "covers": ["existing scoring and reporter behavior", "CSV and XLSX validation", "multi-class and unassigned enrollments", "preview/digest/revision controls", "registration code lifecycle and account binding", "email correction revocation and recipient checks", "private API and export separation", "role transfer/withdrawal/rollback", "partial Discord failure and policy retirement after uncertain acceptance", "bot permission preflight", "private reviewed mail plans and retry/pause receipts"]
+    "covers": [
+      "existing scoring and reporter behavior",
+      "CSV and XLSX validation",
+      "multi-class and unassigned enrollments",
+      "preview/digest/revision controls",
+      "registration code lifecycle and account binding",
+      "email correction revocation and recipient checks",
+      "private API and export separation",
+      "role transfer/withdrawal/rollback",
+      "partial Discord failure and policy retirement after uncertain acceptance",
+      "bot permission preflight",
+      "private reviewed mail plans and retry/pause receipts",
+      "planner/admin separation and required attribution",
+      "removed-class access revocation",
+      "Discord read-back and effective member isolation",
+      "stale targeted-change and rollback conflict rejection",
+      "immutable human reports, history and nonzero incomplete verification",
+      "persisted phase restoration and verified remote database TLS",
+      "500-student preview query budget"
+    ]
   },
   "dashboard": {
-    "npm_test": "passed (3 test files)",
+    "npm_test": "passed (4 test files)",
     "npm_run_lint": "passed",
     "npm_run_build": "passed",
-    "covers": ["strict identity-free inventory", "duplicate/class conflict rejection", "persist-before-use", "invalid JSON error redaction", "no invented machine health", "existing event and topology behavior"]
+    "covers": [
+      "strict identity-free inventory",
+      "duplicate/class conflict rejection",
+      "persist-before-use",
+      "invalid JSON error redaction",
+      "no invented machine health",
+      "existing event and topology behavior",
+      "trusted origin and no credential redirects",
+      "bounded and redacted source responses"
+    ]
   },
   "postgresql_16_two_database_rehearsal": {
     "fresh_databases": true,
@@ -33,12 +61,14 @@
     "backend_health": "healthy",
     "real_discord_requests": 0,
     "real_emails_sent": 0,
-    "script": "scripts/rehearse_enrollment.py"
+    "script": "scripts/rehearse_enrollment.py",
+    "planner_cli_human_approval_transfer": "passed",
+    "human_reports_saved": true
   },
   "container": {
     "build": "passed",
-    "image": "claw-order-cyberlabs:enrollment",
-    "image_id": "sha256:b250f227a067fec7d51d44fae6f094fdf09f19ce01fea7ac0db94318ef289d84",
+    "image": "claw-order-cyberlabs:audited",
+    "image_id": "sha256:333ab46f9052c1be9cdba9117db58a7ed584542d9ee9e9a6fa4ce1ca87facb2c",
     "runtime_uid": 10001,
     "runtime_smoke": "network disabled, read-only filesystem, module imports and template presence passed",
     "local_private_files": "absent",
@@ -48,9 +78,23 @@
   "workbook": {
     "path": "templates/roster.xlsx",
     "blank_student_rows": true,
-    "rendered_sheets_reviewed": ["Roster", "Instructions"],
+    "rendered_sheets_reviewed": [
+      "Roster",
+      "Instructions"
+    ],
     "readback": "headers, text identifiers, blank rows, status validation, required-field formatting, frozen columns and no formulas verified",
     "native_excel_application_test": false
   },
-  "live_acceptance_required": ["faculty role definitions", "selected Discord and real role/channel mappings", "staff Discord registration and isolation pilot", "institutional SMTP delivery if used", "real roster reconciliation", "production TLS, secret storage and access controls", "production-sized load and backup/restore rehearsal", "real machine reporter deployment"]
+  "live_acceptance_required": [
+    "faculty role definitions",
+    "selected Discord and real role/channel mappings",
+    "staff Discord registration and isolation pilot",
+    "institutional SMTP delivery if used",
+    "real roster reconciliation",
+    "production TLS, secret storage and access controls",
+    "production-sized load and backup/restore rehearsal",
+    "real machine reporter deployment"
+  ],
+  "audit_reference": "AUDIT-2026-11-03.md",
+  "scanner_reference": "audit-evidence.json"
 }

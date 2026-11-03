@@ -14,6 +14,9 @@ async def migrate() -> None:
         await conn.run_sync(lambda sync: _migrate_event_source_id(sync, create_index=False))
         await conn.run_sync(_backfill_event_counts)
         await conn.execute(text("INSERT INTO enrollment_state (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING"))
+        if engine.url.get_backend_name() == "sqlite":
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_enrollment_audit_subject ON enrollment_audit (subject_id, id)"))
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_enrollment_audit_revision ON enrollment_audit (action, revision)"))
         await conn.execute(text(
             "INSERT INTO dashboard_outbox (event_id, created_at) "
             "SELECT id, timestamp FROM events WHERE 1=1 ON CONFLICT (event_id) DO NOTHING"
@@ -41,6 +44,8 @@ async def migrate() -> None:
                 "CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_discord_outbox_age "
                 "ON discord_outbox (sent_at, created_at)"
             ))
+            await conn.execute(text("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_enrollment_audit_subject ON enrollment_audit (subject_id, id)"))
+            await conn.execute(text("CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_enrollment_audit_revision ON enrollment_audit (action, revision)"))
     await engine.dispose()
 
 

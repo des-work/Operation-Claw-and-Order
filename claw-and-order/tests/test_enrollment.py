@@ -79,6 +79,8 @@ class FakeDiscord:
         self.fail_add_once = False
     async def validate(self, *_):
         pass
+    async def verify_access(self, *_):
+        pass
     async def member_roles(self, user):
         if user not in self.roles:
             raise MembershipError("not joined", "awaiting_member")
@@ -307,12 +309,12 @@ async def test_private_api_authorization_upload_limits_and_export_scope(enrollme
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         admin = {"X-Admin-Secret": TEST_ADMIN_SECRET}
         export = {"X-Export-Secret": TEST_EXPORT_SECRET}
-        assert (await client.get("/api/admin/enrollment/students", headers=export)).status_code == 422
-        assert (await client.post("/api/admin/enrollment/imports", headers=export, json={"rows": [row()]})).status_code == 422
-        response = await client.post("/api/admin/enrollment/imports", headers=admin, json={"rows": [row()]})
+        assert (await client.get("/api/admin/enrollment/students", headers=export)).status_code == 401
+        assert (await client.post("/api/admin/enrollment/imports", headers=export, json={"rows": [row()]})).status_code == 401
+        response = await client.post("/api/admin/enrollment/imports", headers=admin, json={"rows": [row()], "context": {"requested_by": "test_admin", "reason": "Synthetic acceptance import"}})
         assert response.status_code == 200 and response.headers["cache-control"] == "no-store"
         batch = response.json()
-        assert (await client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"]})).status_code == 200
+        assert (await client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"], "approved_by": "test_admin"})).status_code == 200
         inventory = await client.get("/api/admin/enrollment/teams/export", headers=export)
         assert inventory.status_code == 200 and "private idea" not in inventory.text and "@college" not in inventory.text
         assert (await client.get("/api/admin/enrollment/teams/export", headers=admin)).status_code == 422

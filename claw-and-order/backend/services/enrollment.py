@@ -5,11 +5,10 @@ import hmac
 import json
 import os
 import secrets
-from collections import Counter
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, func
 
 from backend.enrollment_policy import EnrollmentError, snowflake
 from backend.models import (Student, Enrollment, Team, EnrollmentState, EnrollmentImport,
@@ -72,13 +71,19 @@ async def queue_sync(session, student_id, policy, revision, linked):
         session.add(ManagedDiscordGrant(student_id=student_id, guild_id=policy.guild_id, role_id=role_id))
 
 
-async def preview_import(session, records, policy):
+async def preview_import(session, records, policy, context=None, *, kind="roster", sync_student_ids=None, source_batch_id=None, expected_revision=None):
     domains = tuple(d.strip().casefold() for d in os.getenv("ENROLLMENT_EMAIL_DOMAINS", "").split(",") if d.strip())
-    rows = normalize_rows(records, domains)
+    rows = normalize_rows(records, domains) if kind != "reconcile" else []
     state = await state_for_update(session)
-    students = {s.id: s for s in (await session.execute(select(Student))).scalars()}
+    if expected_revision is not None and state.revision != expected_revision:
+        raise EnrollmentError("Roster changed while preparing this targeted change; read the student again", 409)
+    targets = sorted(set(sync_student_ids or ()) | {r["student_id"] for r in rows})
+    if len(targets) > 5000:
+        raise EnrollmentError("Review at most 5,000 students in one change; use scoped roster batches")
+    students = {s.id: s for s in (await session.execute(select(Student).where(
+        or_(Student.id.in_(targets), Student.email.in_([r["email"] for r in rows]))))).scalars()}
     emails = {s.email: s.id for s in students.values()}
-    existing = {(e.student_id, e.term_id, e.class_id): e for e in (await session.execute(select(Enrollment))).scalars()}
+    existing = {(e.student_id, e.term_id, e.class_id): e for e in (await session.execute(select(Enrollment).where(Enrollment.student_id.in_(targets)))).scalars()}
     known_teams = set((await session.execute(select(Team.id))).scalars())
     before, changes = [], []
     for row in rows:
@@ -99,38 +104,54 @@ async def preview_import(session, records, policy):
         changes.append({"student_id": row["student_id"], "term_id": row["term_id"], "class_id": row["class_id"],
                         "operation": "unchanged" if old == row else "update" if previous else "create",
                         "before": old, "after": row})
-    payload = {"rows": rows, "before": before}
+    from types import SimpleNamespace
+    prospective = dict(existing)
+    for row in rows:
+        prospective[(row["student_id"], row["term_id"], row["class_id"])] = SimpleNamespace(**row)
+    enrollments_by_student, grants_by_student = {}, {}
+    for key, enrollment in prospective.items():
+        enrollments_by_student.setdefault(key[0], []).append(enrollment)
+    for grant in (await session.execute(select(ManagedDiscordGrant).where(
+        ManagedDiscordGrant.guild_id == policy.guild_id, ManagedDiscordGrant.student_id.in_(targets)))).scalars():
+        grants_by_student.setdefault(grant.student_id, set()).add(grant.role_id)
+    role_preview = []
+    for student_id in targets:
+        owned = grants_by_student.get(student_id, set())
+        try:
+            planned = roles_for_enrollments(enrollments_by_student.get(student_id, []), policy)
+            blocked = None
+        except EnrollmentError as error:
+            planned, blocked = set(), str(error)
+        role_preview.append({"student_id": student_id, "discord_linked": bool(students.get(student_id) and students[student_id].discord_user_id),
+                             "recorded_managed_role_ids": sorted(owned), "desired_role_ids": sorted(planned),
+                             "planned_add_role_ids": sorted(planned - owned) if not blocked else [], "planned_remove_role_ids": sorted(owned - planned) if not blocked else [],
+                             "blocked_reason": blocked})
+    labels = {}
+    for c in policy.data["classes"]:
+        labels[c["discord_role_id"]] = f"Class {c['class_id']} / {c['term_id']}"
+        for team_id, team in c["teams"].items():
+            labels[team["discord_role_id"]] = f"Team {team_id}"
+        for key, role_id in c["student_roles"].items():
+            labels[role_id] = f"{policy.data['role_definitions'][key]['label']} / {c['class_id']}"
+    review = {"kind": kind, "context": context or {}, "source_batch_id": source_batch_id,
+            "guild_id": policy.guild_id, "role_labels": labels, "changes": changes, "role_preview": role_preview,
+            "students": len(targets), "enrollments": len(rows),
+            "unassigned": sum(r["status"] == "active" and not r["team_id"] for r in rows),
+            "pending_role_definitions": sorted({r["role_key"] for r in rows if r["role_key"] and (
+                not policy.data["role_definitions"][r["role_key"]]["approved"] or
+                r["role_key"] not in policy.classes[(r["term_id"], r["class_id"])]["student_roles"])})}
+    payload = {"rows": rows, "before": before, "sync_student_ids": targets, "review": review}
     batch_id = str(uuid4())
     digest = hashlib.sha256(json.dumps({"id": batch_id, "payload": payload,
         "revision": state.revision, "policy": policy.digest}, sort_keys=True).encode()).hexdigest()
     session.add(EnrollmentImport(id=batch_id, payload_json=json.dumps(payload), digest=digest,
                                 policy_hash=policy.digest, base_revision=state.revision))
-    from types import SimpleNamespace
-    from backend.models import ManagedDiscordGrant
-    prospective = dict(existing)
-    for row in rows:
-        prospective[(row["student_id"], row["term_id"], row["class_id"])] = SimpleNamespace(**row)
-    role_preview = []
-    for student_id in sorted({r["student_id"] for r in rows}):
-        owned = set((await session.execute(select(ManagedDiscordGrant.role_id).where(
-            ManagedDiscordGrant.student_id == student_id, ManagedDiscordGrant.guild_id == policy.guild_id))).scalars())
-        try:
-            planned = roles_for_enrollments([e for key, e in prospective.items() if key[0] == student_id], policy)
-            blocked = None
-        except EnrollmentError as error:
-            planned, blocked = set(), str(error)
-        role_preview.append({"student_id": student_id, "discord_linked": bool(students.get(student_id) and students[student_id].discord_user_id),
-                             "recorded_managed_role_ids": sorted(owned), "desired_role_ids": sorted(planned), "blocked_reason": blocked})
-    return {"batch_id": batch_id, "digest": digest, "base_revision": state.revision,
-            "policy_hash": policy.digest, "changes": changes, "role_preview": role_preview,
-            "students": len({r["student_id"] for r in rows}), "enrollments": len(rows),
-            "unassigned": sum(r["status"] == "active" and not r["team_id"] for r in rows),
-            "pending_role_definitions": sorted({r["role_key"] for r in rows if r["role_key"] and (
-                not policy.data["role_definitions"][r["role_key"]]["approved"] or
-                r["role_key"] not in policy.classes[(r["term_id"], r["class_id"])]["student_roles"])})}
+    audit(session, "change_preview_created", batch_id, state.revision,
+          kind=kind, context=context or {}, students=len(targets), policy_hash=policy.digest)
+    return {"batch_id": batch_id, "digest": digest, "base_revision": state.revision, "policy_hash": policy.digest, **review}
 
 
-async def apply_import(session, batch_id, digest, policy):
+async def apply_import(session, batch_id, digest, policy, approved_by=None):
     state = await state_for_update(session)
     batch = (await session.execute(select(EnrollmentImport).where(EnrollmentImport.id == batch_id)
                                    .with_for_update())).scalar_one_or_none()
@@ -142,7 +163,8 @@ async def apply_import(session, batch_id, digest, policy):
         raise EnrollmentError("Import preview expired; generate a new preview", 409)
     if state.revision != batch.base_revision or policy.digest != batch.policy_hash:
         raise EnrollmentError("Roster or policy changed since preview; review a new preview", 409)
-    rows = json.loads(batch.payload_json)["rows"]
+    payload = json.loads(batch.payload_json)
+    rows = payload["rows"]
     state.revision += 1
     touched = {}
     for row in rows:
@@ -165,34 +187,70 @@ async def apply_import(session, batch_id, digest, policy):
             session.add(enrollment)
         enrollment.team_id, enrollment.role_key = row["team_id"] or None, row["role_key"] or None
         enrollment.idea, enrollment.status = row["idea"], row["status"]
+    for student_id in payload.get("sync_student_ids", []):
+        if student_id not in touched:
+            student = await session.get(Student, student_id)
+            if student:
+                touched[student_id] = student
     for student in touched.values():
         await queue_sync(session, student.id, policy, state.revision, bool(student.discord_user_id))
     batch.applied_at = now()
-    audit(session, "import_applied", batch.id, state.revision, students=len(touched), enrollments=len(rows), policy_hash=policy.digest)
+    context = payload.get("review", {}).get("context", {})
+    audit(session, "import_applied", batch.id, state.revision, students=len(touched), enrollments=len(rows),
+          policy_hash=policy.digest, context=context, approved_by=approved_by)
+    for student_id in touched:
+        diffs = []
+        for entry in payload["before"]:
+            if entry["row"]["student_id"] != student_id:
+                continue
+            previous, proposed = entry["previous"] or {}, entry["row"]
+            diffs.append({"term_id": proposed["term_id"], "class_id": proposed["class_id"],
+                          "before": {f: previous.get(f) for f in ("team_id", "role_key", "status")},
+                          "after": {f: proposed.get(f) for f in ("team_id", "role_key", "status")},
+                          "identity_fields_changed": any(previous.get(f) != proposed.get(f) for f in ("email", "display_name"))})
+        audit(session, "student_change_approved", student_id, state.revision, batch_id=batch.id,
+              context=context, approved_by=approved_by, changes=diffs)
     return {"batch_id": batch.id, "revision": state.revision, "already_applied": False}
 
 
-async def rollback_preview(session, batch_id, policy):
+async def rollback_preview(session, batch_id, policy, context=None):
+    await state_for_update(session)
     batch = await session.get(EnrollmentImport, batch_id)
     if not batch or not batch.applied_at:
         raise EnrollmentError("Only an applied import can have a rollback preview", 404)
+    payload = json.loads(batch.payload_json)
+    if payload.get("review", {}).get("kind") == "reconcile":
+        raise EnrollmentError("A reconciliation changes Discord convergence, not roster rows; preview another reconciliation", 409)
     rows = []
-    for entry in json.loads(batch.payload_json)["before"]:
+    for entry in payload["before"]:
+        student = await session.get(Student, entry["row"]["student_id"])
+        current = await session.get(Enrollment, (student.id, entry["row"]["term_id"], entry["row"]["class_id"])) if student else None
+        if current is None or row_of(student, current) != entry["row"]:
+            raise EnrollmentError("A later change affects this student; rollback would overwrite it. Prepare a targeted change instead", 409)
         row = dict(entry["previous"] or entry["row"])
         if entry["previous"] is None:
             row.update(status="withdrawn", team_id="", role_key="")
             if entry["previous_student"]:
                 row.update(entry["previous_student"])
         rows.append(row)
-    return await preview_import(session, rows, policy)
+    return await preview_import(session, rows, policy, context, kind="rollback", source_batch_id=batch_id)
 
 
-async def reconcile_preview(session, policy):
-    pairs = (await session.execute(select(Student, Enrollment).join(Enrollment, Student.id == Enrollment.student_id))).all()
-    rows = [row_of(s, e) for s, e in pairs if (e.term_id, e.class_id) in policy.classes]
-    if not rows:
-        raise EnrollmentError("No enrollments in the selected policy")
-    return await preview_import(session, rows, policy)
+async def reconcile_preview(session, policy, context=None, student_ids=None):
+    await state_for_update(session)
+    # Include prior jobs/grants even when the new policy removes an entire class.
+    targets = set((await session.execute(select(MembershipSync.student_id).where(MembershipSync.guild_id == policy.guild_id))).scalars())
+    targets.update((await session.execute(select(ManagedDiscordGrant.student_id).where(ManagedDiscordGrant.guild_id == policy.guild_id))).scalars())
+    targets.update(e.student_id for e in (await session.execute(select(Enrollment))).scalars()
+                   if (e.term_id, e.class_id) in policy.classes)
+    if student_ids is not None:
+        requested = set(student_ids)
+        if len(requested) != len(student_ids) or not requested.issubset(targets):
+            raise EnrollmentError("Reconciliation targets must be unique known students for this server")
+        targets = requested
+    if not targets:
+        raise EnrollmentError("No enrollment or previously managed access exists for the selected server")
+    return await preview_import(session, [], policy, context, kind="reconcile", sync_student_ids=targets)
 
 
 async def issue_invitations(session, student_ids, ttl_hours, policy):
@@ -241,10 +299,14 @@ async def claim_registration(session, code, discord_user_id, guild_id, policy):
         raise EnrollmentError("No active enrollment is available for registration")
     if student.discord_user_id not in (None, discord_user_id) or owner not in (None, student.id):
         raise EnrollmentError("This student or Discord account is already linked; ask an instructor to review it", 409)
+    previous_job = await session.get(MembershipSync, (student.id, guild_id))
+    if previous_job is None or previous_job.policy_hash != policy.digest:
+        raise EnrollmentError("Role policy changed since approval; staff must review reconciliation before registration", 409)
+    approval_revision = previous_job.revision
     student.discord_user_id = discord_user_id
     invitation.used_at = now()
     state.revision += 1
-    await queue_sync(session, student.id, policy, state.revision, True)
+    await queue_sync(session, student.id, policy, approval_revision, True)
     audit(session, "student_registered", student.id, state.revision, guild_id=guild_id)
     return {"status": "registered", "role_sync": "pending"}
 
@@ -277,9 +339,12 @@ def roles_for_enrollments(enrollments, policy):
 
 
 async def export_teams(session, policy):
-    counts = Counter(tuple(row) for row in (await session.execute(select(Enrollment.term_id, Enrollment.class_id, Enrollment.team_id).where(
-        Enrollment.status == "active", Enrollment.team_id.is_not(None)))).all())
-    teams = {t.id: t for t in (await session.execute(select(Team))).scalars()}
+    counts = {tuple(row[:3]): row[3] for row in (await session.execute(select(
+        Enrollment.term_id, Enrollment.class_id, Enrollment.team_id, func.count()).where(
+        Enrollment.status == "active", Enrollment.team_id.is_not(None)).group_by(
+        Enrollment.term_id, Enrollment.class_id, Enrollment.team_id))).all()}
+    ids = [team_id for c in policy.data["classes"] for team_id in c["teams"]]
+    teams = {t.id: t for t in (await session.execute(select(Team).where(Team.id.in_(ids)))).scalars()}
     rows = []
     for c in policy.data["classes"]:
         for team_id in c["teams"]:
@@ -287,5 +352,5 @@ async def export_teams(session, policy):
                 raise EnrollmentError("A policy team is not provisioned in Claw & Order", 503)
             team = teams[team_id]
             rows.append({"team_id": team.id, "class_id": c["class_id"], "term_id": c["term_id"],
-                         "display_name": team.display_name, "member_count": counts[(c["term_id"], c["class_id"], team.id)], "cidr": team.dmz_cidr})
+                         "display_name": team.display_name, "member_count": counts.get((c["term_id"], c["class_id"], team.id), 0), "cidr": team.dmz_cidr})
     return {"version": 1, "teams": sorted(rows, key=lambda row: row["team_id"])}

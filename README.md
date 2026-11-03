@@ -8,6 +8,8 @@ For the current two-repository release sequence, acceptance criteria, and rollba
 
 For the student roster → Discord roles → dashboard pipeline, start with the [Cyberlabs handoff](CYBERLABS-START-HERE.md). It includes blank CSV/XLSX templates, reviewed imports, private registration, durable membership reconciliation, optional reviewed invitation email, and deployment examples. Student responsibility definitions remain a faculty input.
 
+The [audit report](claw-and-order/docs/AUDIT-2026-11-03.md), [human operations guide](claw-and-order/docs/HUMAN-OPERATIONS.md), [Hermes planner instructions](claw-and-order/docs/HERMES-INSTRUCTIONS.md) and [synthetic report examples](claw-and-order/docs/examples/README.md) define the reviewed change/approval/verification process.
+
 ---
 
 ## Team Roles

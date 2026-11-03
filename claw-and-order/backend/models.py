@@ -218,6 +218,8 @@ class ManagedDiscordGrant(Base):
 
 class EnrollmentAudit(Base):
     __tablename__ = "enrollment_audit"
+    __table_args__ = (Index("ix_enrollment_audit_subject", "subject_id", "id"),
+                      Index("ix_enrollment_audit_revision", "action", "revision"))
     id = Column(Integer, primary_key=True, autoincrement=True)
     action = Column(Text, nullable=False)
     subject_id = Column(Text, nullable=False)

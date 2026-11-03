@@ -104,6 +104,22 @@ class DiscordMembershipAdapter:
     async def remove_role(self, user_id, role_id, reason):
         await self._change(user_id, role_id, reason, False)
 
+    async def verify_access(self, user_id, desired):
+        try:
+            member = await self.guild.fetch_member(int(user_id))
+            channels = {str(c.id): c for c in await self.guild.fetch_channels()}
+            for c in self.policy.data["classes"]:
+                for team in c["teams"].values():
+                    expected = team["discord_role_id"] in desired
+                    for channel_id in team["channel_ids"]:
+                        channel = channels.get(channel_id)
+                        if channel is None or channel.permissions_for(member).view_channel != expected:
+                            raise MembershipError("Effective member channel access differs from the approved team; inspect unrelated roles and member overrides", "blocked_isolation")
+        except (discord.Forbidden, discord.NotFound):
+            raise MembershipError("Cannot verify effective member access; inspect membership and permissions", "blocked_permissions") from None
+        except discord.HTTPException:
+            raise MembershipError("Discord access verification temporarily failed") from None
+
 
 class EnrollmentBot(discord.Client):
     def __init__(self, policy):
@@ -151,6 +167,8 @@ class EnrollmentBot(discord.Client):
     async def _work(self):
         while True:
             try:
+                if load_policy().digest != self.policy.digest:
+                    raise EnrollmentError("Policy changed; worker restart required", 503)
                 await heartbeat(async_session, self.policy)
                 attempted = await sync_once(async_session, self.policy, self.adapter)
                 if not attempted:

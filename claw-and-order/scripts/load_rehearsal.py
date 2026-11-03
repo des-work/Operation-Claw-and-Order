@@ -14,9 +14,15 @@ import uuid
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 
 def send(url, token, team_id, target_ip, source_id):
+    origin = urlsplit(url)
+    if origin.username or origin.password or origin.query or origin.fragment or origin.path not in ("", "/") or (
+        origin.scheme != "https" and not (origin.scheme == "http" and origin.hostname in ("localhost", "127.0.0.1", "::1"))
+    ):
+        raise ValueError("Rehearsal target must be an HTTPS origin or loopback HTTP origin")
     payload = json.dumps({
         "team_id": team_id, "command": f"load-rehearsal {target_ip}",
         "technique": "port_scan", "target_ip": target_ip,

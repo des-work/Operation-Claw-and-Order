@@ -10,6 +10,7 @@ import os
 import re
 import smtplib
 import ssl
+import stat
 import time
 from datetime import datetime, timezone
 from email.message import EmailMessage
@@ -17,8 +18,9 @@ from email.utils import parseaddr
 from pathlib import Path
 
 from backend.enrollment_cli import private_write, request_api
+from backend.enrollment_reports import mail_report
 
-IMMUTABLE = ("id", "to", "subject", "body", "expires_at", "message_id")
+IMMUTABLE = ("id", "to", "subject", "body", "expires_at", "message_id", "invite_url")
 
 
 def smtp_config():
@@ -36,12 +38,20 @@ def smtp_config():
 
 
 def private_read(path):
-    source = Path(path)
-    if source.is_symlink() or not source.is_file() or source.stat().st_mode & 0o077:
-        raise ValueError("Invitation files must be regular private files with mode 0600")
-    if source.stat().st_size > 20 * 1024 * 1024:
-        raise ValueError("Invitation file exceeds 20 MiB")
-    return source.read_text(encoding="utf-8")
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError("Invitation files must be regular private files owned by this operator with mode 0600")
+        if info.st_size > 20 * 1024 * 1024:
+            raise ValueError("Invitation file exceeds 20 MiB")
+        source = os.fdopen(fd, "r", encoding="utf-8")
+        fd = None
+        with source:
+            return source.read()
+    finally:
+        if fd is not None:
+            os.close(fd)
 
 
 def plan_digest(plan):
@@ -75,7 +85,7 @@ def build_plan(records, config):
                 f"This code expires at {expiration.astimezone(timezone.utc).isoformat()}.\n\n"
                 "Keep the code private. Your approved class and team assignments will be applied after registration. "
                 "If you are awaiting team placement, an instructor can update your assignment later.\n")
-        plan["records"].append({"id": code_hash, "to": address, "subject": "Your Claw & Order Discord invitation",
+        plan["records"].append({"id": code_hash, "to": address, "invite_url": row["invite_url"], "subject": "Your Claw & Order Discord invitation",
             "body": body, "expires_at": expiration.timestamp(),
             "message_id": f"<claw-invite-{code_hash}@{config['from'].split('@', 1)[1]}>",
             "status": "pending", "attempts": 0, "next_attempt": 0, "sent_at": None, "last_error": None})
@@ -105,7 +115,7 @@ def connect(config):
 def send_pass(plan, save, verify=None, connector=connect, max_messages=50):
     if plan.get("paused_reason"):
         return 0
-    verify = verify or (lambda row: request_api("/invitations/check", "POST", {"entries": [{"code_hash": row["id"], "email": row["to"]}]}).get(row["id"]) == "valid")
+    verify = verify or (lambda row: request_api("/invitations/check", "POST", {"entries": [{"code_hash": row["id"], "email": row["to"], "invite_url": row["invite_url"]}]}).get(row["id"]) == "valid")
     attempted = 0
     client = None
     try:
@@ -187,14 +197,18 @@ def main():
         records = list(csv.DictReader(source.splitlines())) if args.invitations.lower().endswith(".csv") else json.loads(source)["invitations"]
         plan = build_plan(records, smtp_config())
         private_write(args.out, json.dumps(plan, indent=2) + "\n")
+        private_write(args.out + ".md", mail_report(plan))
         print(f"Prepared {len(records)} emails; none sent. Review the private plan. Confirmation digest: {plan['digest']}")
         return
     plan_path = Path(args.plan)
     plan = json.loads(private_read(plan_path))
     if not hmac.compare_digest(plan_digest(plan), args.confirm_digest) or plan["smtp"] != smtp_config():
         raise ValueError("Plan contents, confirmation digest or SMTP destination changed; review a new plan")
-    lock = os.open(str(plan_path) + ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+    lock = os.open(str(plan_path) + ".lock", os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
+        info = os.fstat(lock)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o077:
+            raise ValueError("Delivery lock must be a private regular file owned by this operator")
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         # Re-read after taking the lock so two processes cannot resend old state.
         plan = json.loads(private_read(plan_path))
@@ -206,18 +220,28 @@ def main():
             temporary = plan_path.with_name(plan_path.name + f".tmp.{os.getpid()}")
             private_write(temporary, json.dumps(value, indent=2) + "\n")
             os.replace(temporary, plan_path)
+            directory = os.open(plan_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         while True:
             send_pass(plan, save)
+            report_path = str(plan_path) + ".md"
+            report_tmp = report_path + f".tmp.{os.getpid()}"
+            private_write(report_tmp, mail_report(plan))
+            os.replace(report_tmp, report_path)
             print(json.dumps({"counts": {state: sum(row["status"] == state for row in plan["records"]) for state in ("pending", "retry", "sent", "failed", "expired", "cancelled")}, "paused": plan["paused_reason"]}))
             if not args.run or plan["paused_reason"] or not any(row["status"] in ("pending", "retry") for row in plan["records"]):
                 break
             time.sleep(5)
     finally:
         os.close(lock)
+    return 0 if all(row["status"] == "sent" for row in plan["records"]) else 3
 
 
 if __name__ == "__main__":
     try:
-        main()
+        raise SystemExit(main())
     except (ValueError, OSError, KeyError) as error:
         raise SystemExit(type(error).__name__ + ": invitation operation could not be completed; check private configuration and file permissions") from None

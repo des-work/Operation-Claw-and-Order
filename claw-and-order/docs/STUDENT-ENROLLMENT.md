@@ -1,5 +1,7 @@
 # Student enrollment operations
 
+For the current human-facing command sequence, change reports, targeted moves, named approvals and history, use [HUMAN-OPERATIONS.md](HUMAN-OPERATIONS.md). [HERMES-INSTRUCTIONS.md](HERMES-INSTRUCTIONS.md) defines the planner-only agent boundary. Change context and a human approver are required by the current API/CLI; regenerate older previews and update older operator scripts before this release.
+
 ## Architecture and boundaries
 
 ```mermaid
@@ -64,10 +66,10 @@ Blank `team_id` means awaiting placement. Blank `role_key` means no responsibili
 Load `ADMIN_SECRET` and `CLAW_BACKEND_URL` from a private environment file or secret store. HTTPS is required except for loopback development. From the backend `claw-and-order` directory:
 
 ```bash
-python -m backend.enrollment_cli preview private/roster.xlsx --out private/preview-001.json
+python -m backend.enrollment_cli preview private/roster.xlsx --requested-by hermes --reason "Faculty approved semester import" --ticket CLAW-101 --out private/preview-001.json
 # Review changes, role_preview and pending_role_definitions in that private file.
-python -m backend.enrollment_cli apply private/preview-001.json --confirm-digest DIGEST_FROM_REVIEWED_FILE
-python -m backend.enrollment_cli status
+python -m backend.enrollment_cli apply private/preview-001.json --approved-by lab_admin --confirm-digest DIGEST_FROM_REVIEWED_FILE --out private/applied-001.json
+python -m backend.enrollment_cli status --out private/status-001.json
 python -m backend.enrollment_cli students --out private/student-status-001.json
 ```
 
@@ -111,7 +113,7 @@ SMTP delivery is at least once: a crash after server acceptance but before the l
 | `GET /students`, `/audit`, `/status` | Admin secret | Staff reporting and aggregate operational status |
 | `GET /teams/export` | Separate export secret | Class, term, team display name, member count and CIDR only |
 
-All private responses are marked no-store. Export credentials cannot read student records or apply imports. The public health endpoint contains only aggregate enrollment state, worker readiness and queue counts. It degrades if a configured worker is missing/stale, uses another policy, has blocked jobs, or has pending/retry work older than 120 seconds. Awaiting registration is a normal state, not proof of a failed worker.
+All private responses, including authorization/validation failures, are marked no-store. Validation responses omit submitted values. Export credentials cannot read student records or apply imports. A separate planner credential can prepare/read changes but cannot apply them or access invitation credentials. The public health endpoint contains only aggregate enrollment state, worker readiness and queue counts. It degrades if a configured worker is missing/stale, uses another policy, has blocked jobs, or has pending/retry work older than 120 seconds. Awaiting registration is a normal state, not proof of a failed worker.
 
 The durable role worker fetches current Discord membership, validates access, removes obsolete managed access before additions, changes one role at a time, and preserves unrelated roles. Approved grant intent is recorded in the same transaction as queueing, before any Discord operation; the managed-grant ledger therefore covers an addition accepted just before a connection loss or crash, including a role retired by a later policy. Network attempts are bounded to 30 seconds per job; retry resumes from actual Discord roles after partial success. Do not run a separate manual role synchronizer over the same managed roles.
 
@@ -132,7 +134,7 @@ The durable role worker fetches current Discord membership, validates access, re
 | Dashboard source failure | Last durable inventory retained; health degraded, no fabricated students/machines | Repair export secret/network/database; poller recovers |
 | Production promotion | Real two-class pilot passes isolation, registration, email, transfer, restart and recovery checks | Keep prior release/databases and hold the full-class launch |
 
-Rollback is `python -m backend.enrollment_cli rollback --batch-id ORIGINAL_BATCH_ID --out private/rollback-preview.json`, followed by review and the normal `apply --confirm-digest`. Newly introduced enrollments become withdrawn; student identities and audit history are retained. Pause the worker before changing server/policy or restoring a database. Restore database, policy and any email spool consistently; do not restore an old sender spool and blindly resend already accepted invitations.
+Rollback is `python -m backend.enrollment_cli rollback --batch-id ORIGINAL_BATCH_ID --requested-by hermes --reason "Faculty requested correction of prior assignment" --ticket CLAW-107 --out private/rollback-preview.json`, followed by human review and normal apply/verify. It refuses later conflicting student changes. Newly introduced enrollments become withdrawn; student identities and audit history are retained. Pause the worker before changing server/policy or restoring a database. Restore database, policy and any email spool consistently; do not restore an old sender spool and blindly resend already accepted invitations.
 
 Run `python -m pytest tests -q`, dashboard tests/lint/build, then the isolated two-database PostgreSQL rehearsal in `scripts/rehearse_enrollment.py`. It refuses databases without explicit rehearsal names and refuses a prepopulated backend; no live Discord/SMTP connection is used. Before launch, repeat the acceptance table with staff-controlled real accounts, expected class sizes, trusted machine reporters and a production-sized backup/restore/load test.
 

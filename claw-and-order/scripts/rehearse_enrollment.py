@@ -24,6 +24,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 
+def require(condition, message):
+    if not condition:
+        raise RuntimeError(message)
+
+
 def main():
     backend = os.environ.get("REHEARSAL_DATABASE_URL", "")
     dashboard = os.environ.get("REHEARSAL_DASHBOARD_DATABASE_URL", "")
@@ -44,7 +49,7 @@ def main():
         os.environ.update(DATABASE_URL=backend, ADMIN_SECRET=secrets.token_urlsafe(32),
             EVENT_EXPORT_SECRET=secrets.token_urlsafe(32), ENROLLMENT_POLICY_FILE=str(policy_file), APP_ENV="production",
             DISCORD_TOKEN="", DISCORD_WEBHOOK_URL="", DISCORD_WEBHOOKS_FILE="", DISCORD_WEBHOOKS_JSON="",
-            ENROLLMENT_DISCORD_BOT_TOKEN="")
+            ENROLLMENT_DISCORD_BOT_TOKEN="", ENROLLMENT_PLANNER_SECRET=secrets.token_urlsafe(32))
         import httpx
         from sqlalchemy import select, func
         from backend.database import async_session, engine
@@ -53,6 +58,10 @@ def main():
         from backend.enrollment_policy import load_policy
         from backend.services.enrollment import claim_registration
         from backend.services.membership_sync import sync_once, heartbeat
+        from backend.enrollment_cli import private_write
+        from backend.enrollment_reports import change_report
+        report_dir = Path(os.getenv("REHEARSAL_REPORT_DIR", str(Path(work) / "reports")))
+        report_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         asyncio.run(migrate())
         asyncio.run(migrate())
         token = secrets.token_urlsafe(32)
@@ -86,32 +95,63 @@ def main():
                         term_id="2026F", class_id="A", team_id="ClassA_01", role_key="", idea="private idea", status="active")]
                     rows.append({**rows[0], "class_id": "B", "team_id": "ClassB_01"})
                     rows.append({**rows[0], "student_id": "synthetic-2", "email": "synthetic-2@college.example", "display_name": "Synthetic Two", "team_id": ""})
-                    preview = client.post("/api/admin/enrollment/imports", headers=admin, json={"rows": rows})
+                    preview = client.post("/api/admin/enrollment/imports", headers=admin, json={"rows": rows, "context": {"requested_by": "synthetic_operator", "reason": "Isolated PostgreSQL acceptance rehearsal"}})
                     preview.raise_for_status()
                     batch = preview.json()
-                    applied = client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"]})
+                    private_write(report_dir / "01-roster-proposed.md", change_report(batch))
+                    applied = client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"], "approved_by": "synthetic_admin"})
                     applied.raise_for_status()
-                    again = client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"]})
-                    assert again.json()["already_applied"]
+                    again = client.post(f"/api/admin/enrollment/imports/{batch['batch_id']}/apply", headers=admin, json={"digest": batch["digest"], "approved_by": "synthetic_admin"})
+                    require(again.json()["already_applied"], "Repeated application was not idempotent")
                     invitations = client.post("/api/admin/enrollment/invitations", headers=admin, json={"student_ids": ["synthetic-1", "synthetic-2"]})
                     invitations.raise_for_status()
                     code = invitations.json()["invitations"][0]["registration_code"]
                     class FakeDiscord:
                         roles = {"990000000000000001"}
                         async def validate(self, *_): pass
+                        async def verify_access(self, *_): pass
                         async def member_roles(self, _): return set(self.roles)
                         async def add_role(self, user, role, reason): self.roles.add(role)
                         async def remove_role(self, user, role, reason): self.roles.discard(role)
+                    adapter = FakeDiscord()
                     async def claim_and_sync():
                         selected = load_policy()
                         async with async_session() as session, session.begin():
                             await claim_registration(session, code, "920000000000000001", selected.guild_id, selected)
-                        adapter = FakeDiscord()
-                        assert await sync_once(async_session, selected, adapter) == 1
-                        assert adapter.roles == {"990000000000000001", "930000000000000001", "930000000000000002", "940000000000000001", "940000000000000003"}
+                        require(await sync_once(async_session, selected, adapter) == 1, "Registration did not produce a role job")
+                        require(adapter.roles == {"990000000000000001", "930000000000000001", "930000000000000002", "940000000000000001", "940000000000000003"}, "Registered student's class/team role union is wrong")
                         await heartbeat(async_session, selected)
                         await engine.dispose()
                     asyncio.run(claim_and_sync())
+                    review = client.get(f"/api/admin/enrollment/imports/{batch['batch_id']}/review", headers=admin)
+                    review.raise_for_status()
+                    require(review.json()["verification"]["outcome"] == "WAITING", "Unregistered student was incorrectly certified")
+                    private_write(report_dir / "02-roster-waiting.md", change_report(review.json()))
+                    planner_env = os.environ.copy()
+                    for key in ("ADMIN_SECRET", "EVENT_EXPORT_SECRET", "DATABASE_URL", "ENROLLMENT_DISCORD_BOT_TOKEN"):
+                        planner_env.pop(key, None)
+                    planner_env["CLAW_BACKEND_URL"] = "http://127.0.0.1:18080"
+                    def cli(arguments, environment):
+                        subprocess.run([sys.executable, "-m", "backend.enrollment_cli", *arguments], cwd=ROOT,
+                                       env=environment, check=True, capture_output=True, text=True)
+                    move_file = report_dir / "03-team-move.json"
+                    cli(["change", "--student-id", "synthetic-1", "--term-id", "2026F", "--class-id", "A", "--team-id", "ClassA_02",
+                         "--requested-by", "synthetic_hermes", "--reason", "Faculty approved synthetic team rebalance", "--ticket", "SYNTHETIC-101", "--out", str(move_file)], planner_env)
+                    move = json.loads(move_file.read_text())
+                    human_env = os.environ.copy()
+                    human_env.pop("ENROLLMENT_PLANNER_SECRET", None)
+                    human_env["CLAW_BACKEND_URL"] = "http://127.0.0.1:18080"
+                    cli(["apply", str(move_file), "--confirm-digest", move["digest"], "--approved-by", "synthetic_admin", "--out", str(report_dir / "04-team-move-applied.json")], human_env)
+                    async def sync_transfer():
+                        require(await sync_once(async_session, load_policy(), adapter) == 1, "Transfer job was not processed")
+                        require("940000000000000001" not in adapter.roles and "940000000000000002" in adapter.roles and "940000000000000003" in adapter.roles, "Transfer did not preserve the other class")
+                        await heartbeat(async_session, load_policy())
+                        await engine.dispose()
+                    asyncio.run(sync_transfer())
+                    cli(["verify", "--batch-id", move["batch_id"], "--out", str(report_dir / "05-team-move-verified.md")], planner_env)
+                    cli(["history", "--student-id", "synthetic-1", "--out", str(report_dir / "06-student-history.md")], planner_env)
+                    verified = client.get(f"/api/admin/enrollment/imports/{move['batch_id']}/review", headers=admin).json()
+                    require(verified["verification"]["outcome"] == "VERIFIED", "Transfer has no matching verification evidence")
                     event = client.post("/api/events", headers={"Authorization": "Bearer " + token}, json={"team_id": "ClassA_01",
                         "command": "nmap -sV 10.50.1.100", "technique": "port_scan", "target_ip": "10.50.1.100", "result": "success", "source_id": "synthetic:enrollment:1"})
                     event.raise_for_status()
@@ -120,11 +160,12 @@ def main():
                     result = subprocess.run(["node", str(ROOT / "scripts/verify_dashboard_enrollment.mjs")], env=env, cwd=ROOT, capture_output=True, text=True, check=True)
                     print(result.stdout.strip())
                     health = client.get("/api/health")
-                    assert health.status_code == 200, health.text
-                    assert health.json()["enrollment"]["status"] == "healthy"
+                    require(health.status_code == 200, "Backend health degraded during rehearsal")
+                    require(health.json()["enrollment"]["status"] == "healthy", "Enrollment health degraded during rehearsal")
                     print(json.dumps({"postgresql": "migration_rerun_passed", "synthetic_students": 2, "enrollments": 3,
                         "registered_students": 1, "unassigned_students": 1, "preserved_unrelated_roles": True,
-                        "real_discord_requests": 0, "real_emails_sent": 0, "backend_health": "healthy"}))
+                        "real_discord_requests": 0, "real_emails_sent": 0, "backend_health": "healthy",
+                        "planner_cli_human_approval_transfer": "passed", "human_reports_saved": True}))
             finally:
                 process.terminate()
                 try:

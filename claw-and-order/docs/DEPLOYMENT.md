@@ -6,6 +6,8 @@ The following gates are for a **staging rehearsal before production**. Record th
 
 Student enrollment is now part of this release. Follow [STUDENT-ENROLLMENT.md](STUDENT-ENROLLMENT.md), complete the faculty [role definitions](ROLE-DEFINITIONS.md), and use the `../deploy/` examples. Apply the new backend enrollment tables/revision seed and dashboard `enrollment_snapshots` migration before starting updated processes. API and enrollment worker are separate processes; include both pools in the PostgreSQL connection budget. The worker needs its own bot token and the API/worker must use the same reviewed policy hash.
 
+The audit release also adds enrollment audit lookup indexes to the backend migration, production remote PostgreSQL certificate/hostname verification, minimum/distinct credential checks and required request/approver metadata. Regenerate old previews and mail plans, update operator scripts, and follow [HUMAN-OPERATIONS.md](HUMAN-OPERATIONS.md). Use the separate planner OS account/credential before giving [HERMES-INSTRUCTIONS.md](HERMES-INSTRUCTIONS.md) to an agent. Current scanner evidence and remaining development-tool advisories are in [AUDIT-2026-11-03.md](AUDIT-2026-11-03.md).
+
 Before promotion, a staff pilot must verify two classes, a student in both classes, an unassigned student, a team transfer and withdrawal, private channel isolation, expired/reissued codes, permission/network failure recovery and accurate dashboard counts. Email delivery needs its own reviewed institutional SMTP pilot. If any gate fails, pause invitations, preserve queues/receipts, repair and apply a reviewed reconciliation. No student responsibility labels or permissions are guessed from spreadsheets or student ideas.
 
 | Gate | Success outcome | If it fails |
