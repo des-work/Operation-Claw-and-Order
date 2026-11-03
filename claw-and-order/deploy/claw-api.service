@@ -1,0 +1,23 @@
+[Unit]
+Description=Claw and Order API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=claw
+Group=claw
+WorkingDirectory=/opt/claw/backend/claw-and-order
+EnvironmentFile=/etc/claw/backend.env
+ExecStart=/opt/claw/backend/claw-and-order/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8000 --workers 1
+Restart=on-failure
+RestartSec=10
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/claw
+
+[Install]
+WantedBy=multi-user.target

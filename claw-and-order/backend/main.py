@@ -15,7 +15,8 @@ from slowapi.errors import RateLimitExceeded
 from backend.config import LOG_LEVEL
 from backend.database import engine, async_session
 from backend.models import Base, PhaseLog
-from backend.routers import events, stream, admin
+from backend.routers import events, stream, admin, enrollment
+from backend.enrollment_policy import EnrollmentError
 from backend.services import discord_worker
 from backend.services.phase import get_current_phase
 from backend.services.watchdog import run_watchdog
@@ -58,7 +59,9 @@ async def lifespan(app: FastAPI):
         if production:
             async with engine.connect() as conn:
                 for table in ("teams", "events", "team_event_counts", "discord_outbox",
-                              "dashboard_outbox", "discord_webhook_deliveries", "discord_webhook_destinations", "phase_log"):
+                              "dashboard_outbox", "discord_webhook_deliveries", "discord_webhook_destinations", "phase_log",
+                              "students", "enrollments", "enrollment_state", "enrollment_imports", "registration_invitations",
+                              "membership_sync", "managed_discord_grants", "enrollment_audit", "enrollment_workers"):
                     await conn.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
                 valid = await conn.scalar(text(
                     "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('uq_events_team_source')"
@@ -70,6 +73,7 @@ async def lifespan(app: FastAPI):
                 await conn.run_sync(Base.metadata.create_all)
                 await conn.run_sync(_migrate_event_source_id)
                 await conn.run_sync(_backfill_event_counts)
+                await conn.execute(text("INSERT INTO enrollment_state (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING"))
         log.info("Database tables ready")
     except Exception as e:
         log.error("Database initialization failed: %s", e)
@@ -111,6 +115,35 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Claw & Order", lifespan=lifespan)
 
+
+class EnrollmentBodyLimit:
+    """Bound request bytes before FastAPI parses JSON or workbook uploads."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http" or not scope.get("path", "").startswith("/api/admin/enrollment") or scope.get("method") != "POST":
+            return await self.app(scope, receive, send)
+        from collections import deque
+        from backend.roster_input import MAX_BYTES
+        chunks, total = deque(), 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            total += len(message.get("body", b""))
+            if total > MAX_BYTES:
+                return await JSONResponse({"detail": "Enrollment request exceeds 10 MiB"}, status_code=413)(scope, receive, send)
+            chunks.append(message)
+            if not message.get("more_body", False):
+                break
+        async def replay():
+            return chunks.popleft() if chunks else await receive()
+        await self.app(scope, replay, send)
+
+
+app.add_middleware(EnrollmentBodyLimit)
+
 # ── Rate limiting middleware ──────────────────────────────────────────────
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -127,12 +160,22 @@ app.add_middleware(
 # ── Global exception handler — never leak raw tracebacks to clients ──────
 @app.exception_handler(Exception)
 async def _unhandled_exception_handler(request: Request, exc: Exception):
-    log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    if request.url.path.startswith("/api/admin/enrollment"):
+        log.error("Private enrollment operation failed: %s", type(exc).__name__)
+    else:
+        log.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"detail": "Internal server error"},
     )
 
+
+@app.exception_handler(EnrollmentError)
+async def _enrollment_error(request: Request, exc: EnrollmentError):
+    return JSONResponse(status_code=exc.status, content={"detail": str(exc)}, headers={"Cache-Control": "no-store"})
+
 app.include_router(events.router)
 app.include_router(stream.router)
 app.include_router(admin.router)
+app.include_router(enrollment.router)
+app.include_router(enrollment.export_router)

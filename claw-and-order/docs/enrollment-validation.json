@@ -1,0 +1,56 @@
+{
+  "validated_on": "2026-11-03",
+  "scope": "Synthetic local acceptance; production configuration and school pilot pending",
+  "backend": {
+    "command": "python -m pytest tests -q",
+    "passed": 80,
+    "failed": 0,
+    "local_python": "3.14",
+    "container_and_ci_python": "3.12",
+    "covers": ["existing scoring and reporter behavior", "CSV and XLSX validation", "multi-class and unassigned enrollments", "preview/digest/revision controls", "registration code lifecycle and account binding", "email correction revocation and recipient checks", "private API and export separation", "role transfer/withdrawal/rollback", "partial Discord failure and policy retirement after uncertain acceptance", "bot permission preflight", "private reviewed mail plans and retry/pause receipts"]
+  },
+  "dashboard": {
+    "npm_test": "passed (3 test files)",
+    "npm_run_lint": "passed",
+    "npm_run_build": "passed",
+    "covers": ["strict identity-free inventory", "duplicate/class conflict rejection", "persist-before-use", "invalid JSON error redaction", "no invented machine health", "existing event and topology behavior"]
+  },
+  "postgresql_16_two_database_rehearsal": {
+    "fresh_databases": true,
+    "migration_rerun": "passed",
+    "synthetic_students": 2,
+    "enrollments": 3,
+    "registered_students": 1,
+    "unassigned_students": 1,
+    "teams": 3,
+    "classes": 2,
+    "imported_events": 1,
+    "duplicate_events_on_replay": 0,
+    "pending_events": 0,
+    "student_identity_fields_exposed": false,
+    "invented_machine_reports": false,
+    "preserved_unrelated_roles": true,
+    "backend_health": "healthy",
+    "real_discord_requests": 0,
+    "real_emails_sent": 0,
+    "script": "scripts/rehearse_enrollment.py"
+  },
+  "container": {
+    "build": "passed",
+    "image": "claw-order-cyberlabs:enrollment",
+    "image_id": "sha256:b250f227a067fec7d51d44fae6f094fdf09f19ce01fea7ac0db94318ef289d84",
+    "runtime_uid": 10001,
+    "runtime_smoke": "network disabled, read-only filesystem, module imports and template presence passed",
+    "local_private_files": "absent",
+    "compose_schema": "passed with --no-env-resolution; services not started",
+    "systemd_templates": "not installed; target /opt/claw executables do not exist on this workstation"
+  },
+  "workbook": {
+    "path": "templates/roster.xlsx",
+    "blank_student_rows": true,
+    "rendered_sheets_reviewed": ["Roster", "Instructions"],
+    "readback": "headers, text identifiers, blank rows, status validation, required-field formatting, frozen columns and no formulas verified",
+    "native_excel_application_test": false
+  },
+  "live_acceptance_required": ["faculty role definitions", "selected Discord and real role/channel mappings", "staff Discord registration and isolation pilot", "institutional SMTP delivery if used", "real roster reconciliation", "production TLS, secret storage and access controls", "production-sized load and backup/restore rehearsal", "real machine reporter deployment"]
+}

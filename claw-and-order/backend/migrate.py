@@ -13,6 +13,7 @@ async def migrate() -> None:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(lambda sync: _migrate_event_source_id(sync, create_index=False))
         await conn.run_sync(_backfill_event_counts)
+        await conn.execute(text("INSERT INTO enrollment_state (id, revision) VALUES (1, 0) ON CONFLICT (id) DO NOTHING"))
         await conn.execute(text(
             "INSERT INTO dashboard_outbox (event_id, created_at) "
             "SELECT id, timestamp FROM events WHERE 1=1 ON CONFLICT (event_id) DO NOTHING"

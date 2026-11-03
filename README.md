@@ -6,9 +6,13 @@ Teams deploy Kali Linux VMs to penetrate a target network across three timed pha
 
 For the current two-repository release sequence, acceptance criteria, and rollback steps, use the [deployment readiness checklist](claw-and-order/docs/DEPLOYMENT.md). The historical schedule and handoff notes below are project background.
 
+For the student roster → Discord roles → dashboard pipeline, start with the [Cyberlabs handoff](CYBERLABS-START-HERE.md). It includes blank CSV/XLSX templates, reviewed imports, private registration, durable membership reconciliation, optional reviewed invitation email, and deployment examples. Student responsibility definitions remain a faculty input.
+
 ---
 
 ## Team Roles
+
+These are development responsibilities, not student Discord roles. Faculty student role definitions are recorded separately in [ROLE-DEFINITIONS.md](claw-and-order/docs/ROLE-DEFINITIONS.md).
 
 | Member | Responsibility |
 |--------|---------------|
@@ -23,10 +27,10 @@ For the current two-repository release sequence, acceptance criteria, and rollba
 ```bash
 cd claw-and-order
 
-# Python 3.14 required (3.15 alpha cannot compile pydantic-core)
-py -3.14 -m venv .venv314
-.venv314\Scripts\activate
-pip install -r requirements.txt
+# Python 3.12 is the CI/container baseline (Windows example).
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.lock
 pip install -r requirements-dev.txt
 
 # Configure environment
@@ -254,7 +258,7 @@ python scripts/reset_competition.py full
 ```bash
 cd claw-and-order
 
-# Backend tests (38 tests)
+# Backend, reporter and enrollment regression suite
 python -m pytest tests/ -v
 
 # Reporter normalizer self-tests (16 tests)

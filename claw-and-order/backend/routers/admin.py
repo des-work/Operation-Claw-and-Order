@@ -83,6 +83,8 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         )).one()
         webhook_failures = await db.scalar(select(func.count()).select_from(DiscordWebhookDelivery).where(
             DiscordWebhookDelivery.sent_at.is_(None), DiscordWebhookDelivery.last_error.is_not(None)))
+        from backend.services.enrollment_health import enrollment_health
+        enrollment = await enrollment_health(db)
         if oldest_pending is not None:
             if oldest_pending.tzinfo is None:
                 oldest_pending = oldest_pending.replace(tzinfo=timezone.utc)
@@ -106,12 +108,13 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         dashboard_pending = None
         dashboard_oldest_pending_seconds = None
         webhook_failures = None
+        enrollment = {"status": "database_unavailable"}
 
     phase = get_current_phase()
     cfg = get_phase_config(phase)
 
     discord_status = discord_worker.connection_status()
-    status = "healthy" if db_ok and discord_status != "disconnected" and not webhook_failures and (
+    status = "healthy" if db_ok and enrollment["status"] in ("disabled", "healthy") and discord_status != "disconnected" and not webhook_failures and (
         discord_oldest_pending_seconds is None or discord_oldest_pending_seconds < 120
     ) and (not os.getenv("EVENT_EXPORT_SECRET") or dashboard_oldest_pending_seconds is None or
            dashboard_oldest_pending_seconds < 120
@@ -123,6 +126,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "phase_label": cfg["label"] if cfg else "Unknown",
         "sse_clients": client_count(),
         "discord": discord_status,
+        "enrollment": enrollment,
         "discord_webhook_failures": webhook_failures,
         "discord_pending": discord_pending,
         "discord_oldest_pending_seconds": discord_oldest_pending_seconds,
