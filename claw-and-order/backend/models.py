@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, BigInteger, Text, DateTime, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, BigInteger, Boolean, Text, DateTime, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import DeclarativeBase
 
 
@@ -119,3 +119,27 @@ class DiscordOutbox(Base):
                           default=lambda: datetime.now(timezone.utc))
     attempts = Column(Integer, nullable=False, default=0)
     sent_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class DiscordWebhookDelivery(Base):
+    __tablename__ = "discord_webhook_deliveries"
+    __table_args__ = (Index("ix_discord_webhook_due", "sent_at", "next_attempt"),)
+
+    outbox_id = Column(Integer, ForeignKey("discord_outbox.id"), primary_key=True)
+    destination = Column(Text, primary_key=True)
+    next_attempt = Column(DateTime(timezone=True), nullable=False,
+                          default=lambda: datetime.now(timezone.utc))
+    attempts = Column(Integer, nullable=False, default=0)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    message_id = Column(Text, nullable=True)
+    last_error = Column(Text, nullable=True)
+
+
+class DiscordWebhookDestination(Base):
+    __tablename__ = "discord_webhook_destinations"
+
+    name = Column(Text, primary_key=True)
+    credential_hash = Column(Text, nullable=False)
+    blocked = Column(Boolean, nullable=False, default=False)
+    retry_after = Column(DateTime(timezone=True), nullable=False,
+                         default=lambda: datetime.now(timezone.utc))

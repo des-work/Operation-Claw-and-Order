@@ -15,7 +15,7 @@ async def migrate() -> None:
         await conn.run_sync(_backfill_event_counts)
         await conn.execute(text(
             "INSERT INTO dashboard_outbox (event_id, created_at) "
-            "SELECT id, timestamp FROM events ON CONFLICT (event_id) DO NOTHING"
+            "SELECT id, timestamp FROM events WHERE 1=1 ON CONFLICT (event_id) DO NOTHING"
         ))
 
     # The historical events table may be large. Build the dedupe index without

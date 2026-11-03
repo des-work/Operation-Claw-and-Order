@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import os
 
 from backend.database import get_db
-from backend.models import Team, Event, TeamEventCount, Milestone, PhaseLog, DiscordOutbox, DashboardOutbox
+from backend.models import Team, Event, TeamEventCount, Milestone, PhaseLog, DiscordOutbox, DashboardOutbox, DiscordWebhookDelivery
 from backend.services.phase import (
     get_current_phase,
     get_phase_config,
@@ -81,6 +81,8 @@ async def health_check(db: AsyncSession = Depends(get_db)):
             select(func.count(DashboardOutbox.event_id), func.min(DashboardOutbox.created_at))
             .where(DashboardOutbox.delivered_at.is_(None))
         )).one()
+        webhook_failures = await db.scalar(select(func.count()).select_from(DiscordWebhookDelivery).where(
+            DiscordWebhookDelivery.sent_at.is_(None), DiscordWebhookDelivery.last_error.is_not(None)))
         if oldest_pending is not None:
             if oldest_pending.tzinfo is None:
                 oldest_pending = oldest_pending.replace(tzinfo=timezone.utc)
@@ -103,12 +105,13 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         discord_oldest_pending_seconds = None
         dashboard_pending = None
         dashboard_oldest_pending_seconds = None
+        webhook_failures = None
 
     phase = get_current_phase()
     cfg = get_phase_config(phase)
 
     discord_status = discord_worker.connection_status()
-    status = "healthy" if db_ok and discord_status != "disconnected" and (
+    status = "healthy" if db_ok and discord_status != "disconnected" and not webhook_failures and (
         discord_oldest_pending_seconds is None or discord_oldest_pending_seconds < 120
     ) and (not os.getenv("EVENT_EXPORT_SECRET") or dashboard_oldest_pending_seconds is None or
            dashboard_oldest_pending_seconds < 120
@@ -120,6 +123,7 @@ async def health_check(db: AsyncSession = Depends(get_db)):
         "phase_label": cfg["label"] if cfg else "Unknown",
         "sse_clients": client_count(),
         "discord": discord_status,
+        "discord_webhook_failures": webhook_failures,
         "discord_pending": discord_pending,
         "discord_oldest_pending_seconds": discord_oldest_pending_seconds,
         "dashboard_export": "configured" if os.getenv("EVENT_EXPORT_SECRET") else "disabled",

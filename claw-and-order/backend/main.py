@@ -58,7 +58,7 @@ async def lifespan(app: FastAPI):
         if production:
             async with engine.connect() as conn:
                 for table in ("teams", "events", "team_event_counts", "discord_outbox",
-                              "dashboard_outbox", "phase_log"):
+                              "dashboard_outbox", "discord_webhook_deliveries", "discord_webhook_destinations", "phase_log"):
                     await conn.execute(text(f"SELECT 1 FROM {table} LIMIT 1"))
                 valid = await conn.scalar(text(
                     "SELECT indisvalid FROM pg_index WHERE indexrelid = to_regclass('uq_events_team_source')"

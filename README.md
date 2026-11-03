@@ -142,7 +142,7 @@ The reporter runs on each Kali VM and is the bridge between OpenClaw tool output
 - **Graceful shutdown** — SIGINT/SIGTERM handled cleanly with summary stats (events sent vs buffered)
 - **Heartbeats bypass backoff** — health signal always attempts to reach backend, including during non-tool telemetry; successful heartbeat during outage triggers buffer drain
 
-The scoring backend saves milestone, phase, and VM-offline Discord alerts in a database outbox. `/api/health` reports `discord_pending`; pending alerts retry after Discord or the backend restarts. The dashboard's Discord telemetry importer is separate and reads `[OCRT]` messages from configured channels. Adding a class or team requires provisioning its token and inventory; no fixed team count is built into the pipeline. Rerunning `scripts/provision_tokens.py` with an expanded team JSON creates tokens only for new teams and preserves existing tokens while updating their network metadata. Keep the generated config files secure; existing plaintext tokens cannot be recovered from the database.
+The scoring backend saves milestone, phase, and VM-offline Discord alerts in a database outbox. Incoming Discord webhook URLs are the preferred alert delivery mode, with durable receipts per class destination, persistent rate-limit cooldowns, and quarantine for revoked hooks. See the [Discord handoff guide](claw-and-order/docs/discord-integration-guide.md). `/api/health` reports `discord_pending`; pending alerts retry after Discord or the backend restarts. The dashboard's Discord telemetry importer is separate and reads `[OCRT]` messages from configured channels. Adding a class or team requires provisioning its token and inventory; no fixed team count is built into the pipeline. Rerunning `scripts/provision_tokens.py` with an expanded team JSON creates tokens only for new teams and preserves existing tokens while updating their network metadata. Keep the generated config files secure; existing plaintext tokens cannot be recovered from the database.
 
 Scored events also enter `dashboard_outbox` in the event transaction. The dashboard reads them with a separate `EVENT_EXPORT_SECRET` and acknowledges each page after storage. This avoids missing events when concurrent database transactions commit out of ID order. `/api/health` reports `dashboard_pending` and the oldest pending age.
 
@@ -237,7 +237,7 @@ python scripts/reset_competition.py full
 ## Documentation
 
 - **[Technical Handoff](claw-and-order/docs/HANDOFF.md)** — Full architecture details, DB schema, hardening measures, critical rules
-- **[Discord Integration Guide](claw-and-order/docs/discord-integration-guide.md)** — Bot setup, architecture, FAQ, alert examples
+- **[Discord Integration Guide](claw-and-order/docs/discord-integration-guide.md)** — Webhook setup, class routing, permissions, recovery, and optional bot reader
 - **[Architecture Spec](Claw_and_Order_v2_Definitive_Architecture.docx)** — Original design document
 - **[Gap Analysis](Claw_and_Order_PreBuild_Gap_Analysis.docx)** — Pre-build analysis
 
