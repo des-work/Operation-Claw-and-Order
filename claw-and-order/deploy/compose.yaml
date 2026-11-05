@@ -1,0 +1,35 @@
+services:
+  api:
+    image: claw-order-cyberlabs:enrollment
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    env_file: ../private/backend.env
+    environment:
+      ENROLLMENT_POLICY_FILE: /run/claw/enrollment-policy.json
+    volumes:
+      - ../config/enrollment-policy.json:/run/claw/enrollment-policy.json:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    read_only: true
+    tmpfs: /tmp
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+  enrollment:
+    image: claw-order-cyberlabs:enrollment
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    command: ["python", "-m", "backend.enrollment_bot"]
+    env_file: ../private/enrollment.env
+    environment:
+      ENROLLMENT_POLICY_FILE: /run/claw/enrollment-policy.json
+    volumes:
+      - ../config/enrollment-policy.json:/run/claw/enrollment-policy.json:ro
+    read_only: true
+    tmpfs: /tmp
+    restart: unless-stopped
+    stop_grace_period: 45s
+    security_opt:
+      - no-new-privileges:true

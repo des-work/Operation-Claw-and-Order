@@ -1,0 +1,24 @@
+[Unit]
+Description=Claw and Order Discord enrollment worker
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=claw
+Group=claw
+WorkingDirectory=/opt/claw/backend/claw-and-order
+EnvironmentFile=/etc/claw/enrollment.env
+ExecStart=/opt/claw/backend/claw-and-order/.venv/bin/python -m backend.enrollment_bot
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=45
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/claw
+
+[Install]
+WantedBy=multi-user.target

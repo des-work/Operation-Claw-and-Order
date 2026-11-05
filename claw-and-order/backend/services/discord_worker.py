@@ -5,12 +5,19 @@ RULE: Never use bot.run(). Always asyncio.create_task(bot.start()) in lifespan.
 """
 
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone, timedelta
 from typing import Any
 
 import discord
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.config import DISCORD_TOKEN, DISCORD_CHANNEL_ID as _CHANNEL_ID_STR
+from backend.database import async_session
+from backend.models import DiscordOutbox
+from backend.services.discord_webhooks import load_routes, WebhookSender, deliver_once
 
 log = logging.getLogger("discord_worker")
 
@@ -28,8 +35,17 @@ _queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 
 
 async def enqueue(message: dict[str, Any]) -> None:
-    """Place a message on the Discord dispatch queue."""
+    """Legacy transient notifications. Scoring alerts use queue_notification."""
     await _queue.put(message)
+
+
+def queue_notification(session: AsyncSession, message: dict[str, Any], dedupe_key: str) -> None:
+    """Add a Discord alert to the caller's transaction so it survives restarts."""
+    session.add(DiscordOutbox(
+        dedupe_key=dedupe_key,
+        message_type=message["type"],
+        payload_json=json.dumps(message["data"]),
+    ))
 
 
 # ── Message formatters ─────────────────────────────────────────────────────
@@ -86,6 +102,22 @@ bot = discord.Client(intents=intents)
 
 _channel: discord.TextChannel | None = None
 _dispatch_started: bool = False  # guard against duplicate loops on reconnect
+_worker_tasks: list[asyncio.Task] = []
+_webhook_routes = []
+_webhook_sender = None
+
+
+def connection_status() -> str:
+    """Report actual gateway/channel/dispatcher readiness for health checks."""
+    if _webhook_routes:
+        return "webhook_ready" if _worker_tasks and all(not task.done() for task in _worker_tasks) else "disconnected"
+    if not DISCORD_TOKEN:
+        return "disabled"
+    if bot.is_ready() and _channel is not None and _worker_tasks and all(
+        not task.done() for task in _worker_tasks
+    ):
+        return "connected"
+    return "disconnected"
 
 
 @bot.event
@@ -97,14 +129,14 @@ async def on_ready():
         if _channel is None:
             try:
                 _channel = await bot.fetch_channel(DISCORD_CHANNEL_ID)
-            except discord.NotFound:
-                log.error("Discord channel %d not found", DISCORD_CHANNEL_ID)
+            except discord.HTTPException as e:
+                log.error("Discord channel %d unavailable: %s", DISCORD_CHANNEL_ID, e)
         if _channel:
             log.info("Discord posting to #%s", _channel.name)
     # Start the dispatch loop ONCE — on_ready fires on every gateway reconnect
     if not _dispatch_started:
         _dispatch_started = True
-        asyncio.create_task(_dispatch_loop())
+        _worker_tasks.extend([asyncio.create_task(_dispatch_loop()), asyncio.create_task(_outbox_loop())])
         log.info("Discord dispatch loop started")
     else:
         log.info("Discord reconnected — dispatch loop already running")
@@ -114,22 +146,78 @@ async def _dispatch_loop():
     """Consume the internal queue and send messages to Discord."""
     while True:
         msg = await _queue.get()
-        if _channel is None:
-            log.warning("No Discord channel configured, dropping message: %s", msg)
-            continue
+        delay = 1
+        while True:
+            try:
+                if _channel is None:
+                    raise RuntimeError("Discord channel unavailable")
+                await _channel.send(_format_message(msg))
+                _queue.task_done()
+                break
+            except Exception as e:
+                log.error("Discord transient dispatch failed; retrying: %s", e)
+                await asyncio.sleep(delay)
+                delay = min(delay * 2, 60)
+
+
+async def _outbox_once() -> int:
+    """Dispatch one due alert under a database row lock; returns 1 if attempted."""
+    if _webhook_routes:
+        return await deliver_once(async_session, _webhook_routes, _webhook_sender, _format_message)
+    if _channel is None:
+        return 0
+    async with async_session() as session:
+        async with session.begin():
+            now = datetime.now(timezone.utc)
+            row = (await session.execute(
+                select(DiscordOutbox)
+                .where(DiscordOutbox.sent_at.is_(None), DiscordOutbox.next_attempt <= now)
+                .order_by(DiscordOutbox.id)
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )).scalar_one_or_none()
+            if row is None:
+                return 0
+            try:
+                await _channel.send(_format_message({
+                    "type": row.message_type, "data": json.loads(row.payload_json),
+                }))
+                row.sent_at = datetime.now(timezone.utc)
+            except Exception as e:
+                row.attempts += 1
+                row.next_attempt = datetime.now(timezone.utc) + timedelta(
+                    seconds=min(2 ** min(row.attempts, 6), 60))
+                log.error("Discord alert %d failed (attempt %d): %s", row.id, row.attempts, e)
+            return 1
+
+
+async def _outbox_loop():
+    while True:
         try:
-            text = _format_message(msg)
-            await _channel.send(text)
-        except discord.HTTPException as e:
-            log.error("Discord send failed: %s", e)
+            attempted = await _outbox_once()
+            if not attempted:
+                await asyncio.sleep(2)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
-            log.error("Discord dispatch error: %s", e)
+            log.error("Discord outbox unavailable; retrying: %s", e)
+            await asyncio.sleep(5)
 
 
 # ── Lifespan helpers (called from main.py) ──────────────────────────────────
 
 async def start() -> asyncio.Task | None:
     """Start the bot. Returns the task for cancellation on shutdown."""
+    global _webhook_routes, _webhook_sender
+    _webhook_routes = load_routes()
+    if _webhook_routes:
+        if DISCORD_TOKEN:
+            raise ValueError("Choose Discord webhooks or bot delivery; clear DISCORD_TOKEN for webhook mode")
+        _webhook_sender = WebhookSender()
+        task = asyncio.create_task(_outbox_loop())
+        _worker_tasks.append(task)
+        log.info("Discord webhook delivery configured for %d destinations", len(_webhook_routes))
+        return task
     if not DISCORD_TOKEN:
         log.warning("DISCORD_TOKEN not set — Discord worker disabled")
         return None
@@ -139,9 +227,21 @@ async def start() -> asyncio.Task | None:
 
 async def stop(task: asyncio.Task | None) -> None:
     """Cleanly shut down the bot."""
+    global _dispatch_started, _channel, _webhook_routes, _webhook_sender
     if task is None:
         return
-    await bot.close()
+    if not _webhook_routes:
+        await bot.close()
+    for worker in _worker_tasks:
+        worker.cancel()
+    await asyncio.gather(*_worker_tasks, return_exceptions=True)
+    _worker_tasks.clear()
+    if _webhook_sender:
+        await _webhook_sender.close()
+        _webhook_sender = None
+    _webhook_routes = []
+    _dispatch_started = False
+    _channel = None
     task.cancel()
     try:
         await task

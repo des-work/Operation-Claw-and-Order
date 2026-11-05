@@ -14,6 +14,10 @@ venv/
 .env
 *.env
 !.env.example
+config/discord-webhooks.json
+config/enrollment-policy.json
+private/
+rosters/
 
 # ── Database ─────────────────────────────────────────────────────────────
 *.db

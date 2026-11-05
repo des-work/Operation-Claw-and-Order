@@ -1,0 +1,142 @@
+{
+  "date": "2026-11-03",
+  "tools": {
+    "pip-audit": "2.10.1",
+    "bandit": "1.9.4",
+    "npm-audit": "registry audit"
+  },
+  "python": {
+    "before_affected_packages": [
+      "python-dotenv"
+    ],
+    "advisory": "GHSA-mf9w-mj56-hr94",
+    "patched_dotenv": "1.2.2",
+    "after_known_advisories": 0
+  },
+  "dashboard": {
+    "before": {
+      "info": 0,
+      "low": 1,
+      "moderate": 13,
+      "high": 11,
+      "critical": 1,
+      "total": 26
+    },
+    "after_full_graph": {
+      "info": 0,
+      "low": 0,
+      "moderate": 7,
+      "high": 0,
+      "critical": 0,
+      "total": 7
+    },
+    "after_production_graph": {
+      "info": 0,
+      "low": 0,
+      "moderate": 0,
+      "high": 0,
+      "critical": 0,
+      "total": 0
+    },
+    "remaining_development_packages": [
+      "@eslint-community/eslint-utils",
+      "@eslint/config-array",
+      "@eslint/eslintrc",
+      "eslint",
+      "eslint-plugin-react-refresh",
+      "minimatch",
+      "nodemon"
+    ],
+    "remaining_advisory": "GHSA-g3hv-75wg-m249",
+    "disposition": "Trusted development inputs only; no forced incompatible minimatch major override. Runtime graph has zero known advisories."
+  },
+  "bandit": {
+    "high_findings": 0,
+    "flags": [
+      {
+        "test": "B110",
+        "severity": "LOW",
+        "path": "backend/enrollment_bot.py",
+        "line": 182
+      },
+      {
+        "test": "B608",
+        "severity": "MEDIUM",
+        "path": "backend/enrollment_bot.py",
+        "line": 214
+      },
+      {
+        "test": "B608",
+        "severity": "MEDIUM",
+        "path": "backend/main.py",
+        "line": 82
+      },
+      {
+        "test": "B104",
+        "severity": "MEDIUM",
+        "path": "reporter/reporter.py",
+        "line": 357
+      },
+      {
+        "test": "B101",
+        "severity": "LOW",
+        "path": "reporter/technique_normalizer.py",
+        "line": 101
+      },
+      {
+        "test": "B101",
+        "severity": "LOW",
+        "path": "reporter/technique_normalizer.py",
+        "line": 102
+      },
+      {
+        "test": "B310",
+        "severity": "MEDIUM",
+        "path": "scripts/load_rehearsal.py",
+        "line": 35
+      },
+      {
+        "test": "B404",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 16
+      },
+      {
+        "test": "B106",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 51
+      },
+      {
+        "test": "B603",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 79
+      },
+      {
+        "test": "B603",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 135
+      },
+      {
+        "test": "B607",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 160
+      },
+      {
+        "test": "B603",
+        "severity": "LOW",
+        "path": "scripts/rehearse_enrollment.py",
+        "line": 160
+      }
+    ],
+    "disposition_reference": "AUDIT-2026-11-03.md#static-scan-dispositions"
+  },
+  "limits": [
+    "Synthetic tests and configuration review do not replace the real school pilot",
+    "No real Discord, SMTP or Cyberlabs host was tested",
+    "Current advisory databases cannot prove absence of unknown vulnerabilities"
+  ]
+}

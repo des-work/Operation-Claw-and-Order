@@ -13,17 +13,22 @@ Responsibilities:
 """
 
 import json
+import hashlib
 import os
 import signal
 import sys
 import time
 import logging
+import socket
 from pathlib import Path
 from typing import Optional
 
 import requests
 
-from technique_normalizer import TechniqueNormalizer
+try:
+    from .technique_normalizer import TechniqueNormalizer
+except ImportError:  # direct execution on Kali VM
+    from technique_normalizer import TechniqueNormalizer
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -87,67 +92,102 @@ class BackoffTracker:
 
 # ── Retry buffer ──────────────────────────────────────────────────────────────
 
+class PermanentEventError(Exception):
+    """The backend rejected this event; retrying the same payload cannot help."""
+
+    def __init__(self, status_code: int, response: str):
+        self.status_code = status_code
+        self.response = response[:500]
+        super().__init__(f"HTTP {status_code}: {self.response}")
+
+
 class RetryBuffer:
     """Append-only JSONL buffer for events that failed to POST."""
 
     def __init__(self, path: str, max_events: int = 500):
         self._path = Path(path)
+        self._path.parent.mkdir(parents=True, exist_ok=True)
         self._max = max_events
         # Count existing lines once at init instead of re-reading every append
         self._count = 0
         if self._path.exists():
             self._count = sum(1 for _ in self._path.open("r"))
+        self._warned = False
 
     @property
     def has_content(self) -> bool:
         return self._count > 0
 
     def append(self, payload: dict) -> None:
-        """Append a failed event. Trims oldest if over max."""
+        """Durably append failed telemetry; max_events is an alert threshold, not a drop limit."""
         if self._count >= self._max:
-            # Trim: keep the newest (max - 1) lines, drop the oldest
-            lines = self._path.read_text().splitlines()
-            lines = lines[-(self._max - 1):]
-            self._path.write_text("\n".join(lines) + "\n")
-            self._count = len(lines)
-            log.warning("Retry buffer at limit (%d), dropped oldest event", self._max)
+            if not self._warned:
+                log.error("Retry buffer exceeded %d events; inspect backend and free disk space", self._max)
+                self._warned = True
 
         with self._path.open("a") as f:
             f.write(json.dumps(payload) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
         self._count += 1
+
+    def reject(self, payload: dict, error: PermanentEventError) -> None:
+        """Keep rejected telemetry for operator review without blocking later events."""
+        rejected = self._path.with_suffix(self._path.suffix + ".rejected.jsonl")
+        with rejected.open("a") as out:
+            out.write(json.dumps({"payload": payload, "status_code": error.status_code,
+                                  "response": error.response, "rejected_at": time.time()}) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+        log.error("Event permanently rejected (%s); saved to %s", error, rejected)
 
     def drain(self, post_fn) -> int:
         """Replay buffered events in order. Returns count of successfully drained events."""
         if not self._path.exists():
             return 0
-        lines = self._path.read_text().splitlines()
-        if not lines:
-            return 0
-
-        log.info("Draining retry buffer: %d events", len(lines))
+        log.info("Draining retry buffer: %d events", self._count)
         drained = 0
-        remaining = []
-
-        for line in lines:
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                continue  # corrupt line, discard
-            if post_fn(payload):
-                drained += 1
-            else:
-                remaining.append(line)
-                # Stop draining — backend still down, keep the rest intact
-                remaining.extend(lines[drained + len(remaining):])
-                break
+        remaining = 0
+        failed = False
+        replacement = self._path.with_suffix(self._path.suffix + ".new")
+        with self._path.open("r") as source, replacement.open("w") as target:
+            for line in source:
+                if failed:
+                    target.write(line)
+                    remaining += 1
+                    continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    with self._path.with_suffix(self._path.suffix + ".corrupt").open("a") as bad:
+                        bad.write(line)
+                        bad.flush()
+                        os.fsync(bad.fileno())
+                    log.error("Moved corrupt retry record to %s.corrupt", self._path)
+                    continue
+                try:
+                    accepted = post_fn(payload)
+                except PermanentEventError as error:
+                    self.reject(payload, error)
+                    continue
+                if accepted:
+                    drained += 1
+                else:
+                    failed = True
+                    target.write(line)
+                    remaining += 1
+            target.flush()
+            os.fsync(target.fileno())
 
         if remaining:
-            self._path.write_text("\n".join(remaining) + "\n")
-            self._count = len(remaining)
-            log.warning("Drain stopped — backend unreachable, %d events remain", len(remaining))
+            os.replace(replacement, self._path)
+            self._count = remaining
+            log.warning("Drain stopped — backend unreachable, %d events remain", remaining)
         else:
+            replacement.unlink(missing_ok=True)
             self._path.unlink(missing_ok=True)
             self._count = 0
+            self._warned = False
             log.info("Retry buffer cleared (%d events replayed)", drained)
 
         return drained
@@ -166,6 +206,7 @@ class Reporter:
         self.telemetry_log = cfg.get(
             "telemetry_log", os.path.expanduser("~/.openclaw/logs/telemetry.jsonl")
         )
+        self.cursor_file = Path(cfg.get("cursor_file", self.telemetry_log + ".cursor.json"))
         self.phase_file = cfg.get(
             "phase_file", str(Path(__file__).parent / "current_phase.json")
         )
@@ -180,7 +221,8 @@ class Reporter:
         self.normalizer = TechniqueNormalizer(technique_map)
         self.backoff = BackoffTracker(base=1.0, cap=60.0)
         self.buffer = RetryBuffer(
-            path=cfg.get("retry_buffer", "/tmp/claw_retry_buffer.jsonl"),
+            path=cfg.get("retry_buffer", os.path.expanduser(
+                f"~/.local/state/claw/retry_{self.team_id}.jsonl")),
             max_events=cfg.get("retry_buffer_max_events", 500),
         )
 
@@ -211,7 +253,7 @@ class Reporter:
     # ── HTTP ─────────────────────────────────────────────────────────────────
 
     def post_event(self, payload: dict) -> bool:
-        """POST to /api/events. Returns True on 2xx, False on failure."""
+        """POST an event; raise PermanentEventError for non-retryable responses."""
         return self._post("/api/events", payload)
 
     def _post(self, endpoint: str, payload: dict) -> bool:
@@ -223,6 +265,10 @@ class Reporter:
             )
             if r.status_code in (200, 201, 202):
                 return True
+            if r.status_code in (400, 403, 409, 413, 422):
+                raise PermanentEventError(r.status_code, r.text)
+            if r.status_code == 401:
+                log.error("Reporter credential rejected (HTTP 401); verify this team's token")
             log.warning("POST %s returned %d: %s", endpoint, r.status_code, r.text[:200])
             return False
         except requests.exceptions.RequestException as e:
@@ -250,15 +296,58 @@ class Reporter:
 
     # ── Event builders ───────────────────────────────────────────────────────
 
-    def build_event(self, tool_end_line: dict, technique: str) -> dict:
-        return {
+    def build_event(self, tool_end_line: dict, technique: str, source_id: str | None = None) -> dict:
+        event = {
             "team_id": self.team_id,
             "command": tool_end_line.get("input", {}).get("command", ""),
             "technique": technique,
             "target_ip": tool_end_line.get("input", {}).get("target", ""),
             "result": "success" if tool_end_line.get("success") else "failure",
-            "raw_output": str(tool_end_line.get("output", ""))[:2000],
+            "raw_output": str(tool_end_line.get("output") or "")[:2000],
         }
+        if source_id:
+            event["source_id"] = source_id
+        return event
+
+    def _source_id(self, file, offset: int, line: str) -> str:
+        identity = os.fstat(file.fileno())
+        material = f"{self.team_id}:{socket.gethostname()}:{identity.st_dev}:{identity.st_ino}:{offset}:{line}"
+        return hashlib.sha256(material.encode()).hexdigest()
+
+    def _reject_line(self, line: str, reason: str) -> None:
+        rejected = self.cursor_file.with_suffix(self.cursor_file.suffix + ".rejected.jsonl")
+        rejected.parent.mkdir(parents=True, exist_ok=True)
+        with rejected.open("a") as out:
+            out.write(json.dumps({"reason": reason, "line": line}) + "\n")
+            out.flush()
+            os.fsync(out.fileno())
+        log.error("Telemetry %s; saved to %s", reason, rejected)
+
+    def _save_cursor(self, file) -> None:
+        identity = os.fstat(file.fileno())
+        self.cursor_file.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.cursor_file.with_suffix(self.cursor_file.suffix + ".new")
+        with temporary.open("w") as out:
+            json.dump({"device": identity.st_dev, "inode": identity.st_ino,
+                       "offset": file.tell()}, out)
+            out.flush()
+            os.fsync(out.fileno())
+        os.replace(temporary, self.cursor_file)
+
+    def _open_telemetry(self):
+        file = open(self.telemetry_log, "r")
+        identity = os.fstat(file.fileno())
+        try:
+            cursor = json.loads(self.cursor_file.read_text())
+            if (cursor["device"], cursor["inode"]) == (identity.st_dev, identity.st_ino):
+                file.seek(cursor["offset"] if cursor["offset"] <= identity.st_size else 0)
+            else:
+                file.seek(0)
+        except (OSError, ValueError, KeyError):
+            # First installation begins at the live tail; subsequent runs resume.
+            file.seek(0, 2)
+            self._save_cursor(file)
+        return file
 
     def build_heartbeat(self) -> dict:
         return {
@@ -283,13 +372,25 @@ class Reporter:
             self._events_buffered += 1
             return False
 
-        if self.post_event(payload):
+        if self.buffer.has_content:
+            self.buffer.append(payload)
+            self._events_buffered += 1
+            drained = self.buffer.drain(self.post_event)
+            if self.buffer.has_content:
+                self.backoff.record_failure()
+                return False
+            self._events_sent += drained
+            self.backoff.record_success()
+            return True
+
+        try:
+            accepted = self.post_event(payload)
+        except PermanentEventError as error:
+            self.buffer.reject(payload, error)
+            return False
+        if accepted:
             self._events_sent += 1
-            reconnected = self.backoff.record_success()
-            # Only drain buffer on reconnect (transition from failing to succeeding)
-            if reconnected and self.buffer.has_content:
-                log.info("Backend reconnected — draining buffer")
-                self.buffer.drain(self.post_event)
+            self.backoff.record_success()
             return True
         else:
             delay = self.backoff.record_failure()
@@ -316,7 +417,9 @@ class Reporter:
 
         # Step 2: drain any buffered events from previous run
         if self.buffer.has_content:
-            self.buffer.drain(self.post_event)
+            self._events_sent += self.buffer.drain(self.post_event)
+            if self.buffer.has_content:
+                self.backoff.record_failure()
 
         # Step 3: wait for telemetry log to exist
         telemetry_path = Path(self.telemetry_log)
@@ -333,12 +436,29 @@ class Reporter:
         last_heartbeat = time.time()
         last_phase_poll = time.time()
 
-        with open(self.telemetry_log, "r") as f:
-            # Seek to end — only process new events from this point
-            f.seek(0, 2)
-
+        f = self._open_telemetry()
+        try:
             while self._running:
                 now = time.time()
+
+                # Send health reports even during a flood of malformed or unrelated lines.
+                if now - last_heartbeat >= self.heartbeat_interval:
+                    hb = self.build_heartbeat()
+                    try:
+                        heartbeat_ok = self.post_event(hb)
+                    except PermanentEventError as error:
+                        self.buffer.reject(hb, error)
+                        heartbeat_ok = None
+                    if heartbeat_ok is False:
+                        if not self.backoff.in_backoff:
+                            self.backoff.record_failure()
+                        log.warning("Heartbeat POST failed — backend may be down")
+                    elif heartbeat_ok:
+                        reconnected = self.backoff.record_success()
+                        if reconnected and self.buffer.has_content:
+                            log.info("Heartbeat succeeded after outage — draining buffer")
+                            self._events_sent += self.buffer.drain(self.post_event)
+                    last_heartbeat = now
 
                 # ── Phase poll ────────────────────────────────────────────
                 if now - last_phase_poll >= self.phase_poll_interval:
@@ -346,19 +466,36 @@ class Reporter:
                     last_phase_poll = now
 
                 # ── Read new lines ────────────────────────────────────────
+                offset = f.tell()
                 line = f.readline()
                 if line:
+                    if not line.endswith("\n"):
+                        f.seek(offset)
+                        time.sleep(0.1)
+                        continue
                     line = line.strip()
                     if not line:
+                        self._save_cursor(f)
                         continue
                     try:
                         entry = json.loads(line)
                     except json.JSONDecodeError:
-                        log.debug("Skipping non-JSON line")
+                        self._reject_line(line, "invalid JSON")
+                        self._save_cursor(f)
                         continue
 
                     # Only process tool.end events
                     if entry.get("type") != "tool.end":
+                        self._save_cursor(f)
+                        continue
+
+                    inputs = entry.get("input")
+                    if (not isinstance(inputs, dict) or
+                            not isinstance(inputs.get("command"), str) or not inputs["command"] or
+                            not isinstance(inputs.get("target"), str) or not inputs["target"] or
+                            not isinstance(entry.get("success"), bool)):
+                        self._reject_line(line, "incomplete tool.end telemetry")
+                        self._save_cursor(f)
                         continue
 
                     command = entry.get("input", {}).get("command", "")
@@ -367,27 +504,25 @@ class Reporter:
                     if self.normalizer.is_unknown(technique):
                         log.info("Unknown technique for command: %s", command[:80])
 
-                    payload = self.build_event(entry, technique)
+                    payload = self.build_event(entry, technique, self._source_id(f, offset, line))
                     self.send_event(payload)
+                    self._save_cursor(f)
 
                 else:
+                    try:
+                        current = os.stat(self.telemetry_log)
+                        opened = os.fstat(f.fileno())
+                        if (current.st_dev, current.st_ino) != (opened.st_dev, opened.st_ino) or current.st_size < f.tell():
+                            f.close()
+                            f = open(self.telemetry_log, "r")
+                            self._save_cursor(f)
+                    except OSError:
+                        pass
                     # No new line — brief sleep to avoid busy-wait
                     time.sleep(0.1)
 
-                # ── Heartbeat ─────────────────────────────────────────────
-                if now - last_heartbeat >= self.heartbeat_interval:
-                    hb = self.build_heartbeat()
-                    # Heartbeats bypass backoff — they're the health signal
-                    if not self.post_event(hb):
-                        if not self.backoff.in_backoff:
-                            self.backoff.record_failure()
-                        log.warning("Heartbeat POST failed — backend may be down")
-                    else:
-                        reconnected = self.backoff.record_success()
-                        if reconnected and self.buffer.has_content:
-                            log.info("Heartbeat succeeded after outage — draining buffer")
-                            self.buffer.drain(self.post_event)
-                    last_heartbeat = now
+        finally:
+            f.close()
 
         # ── Shutdown summary ──────────────────────────────────────────────
         log.info(

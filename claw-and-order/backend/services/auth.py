@@ -1,5 +1,8 @@
-"""Bearer token validation via bcrypt."""
+"""Bearer token validation for high entropy team secrets and legacy bcrypt hashes."""
 
+import asyncio
+import hashlib
+import hmac
 import logging
 
 import bcrypt
@@ -25,45 +28,40 @@ async def validate_token(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> Team:
-    """
-    FastAPI dependency: validates Bearer token, returns the Team row.
-
-    Optimisation: if the request body contains a team_id field, look up that
-    single team and verify its hash (O(1) bcrypt call).  Falls back to a
-    full scan only when the hint is missing.
-    """
+    """Validate a team-scoped token without scanning or blocking the event loop."""
     raw_token = _extract_bearer(request)
 
-    # ── Fast path: team_id hint from JSON body ─────────────────────────────
     try:
         body = await request.json()
         team_id_hint = body.get("team_id") if isinstance(body, dict) else None
     except Exception:
         team_id_hint = None
 
-    if team_id_hint:
-        team = (await db.execute(
-            select(Team).where(Team.id == team_id_hint)
-        )).scalar()
-        if team is not None:
-            try:
-                if bcrypt.checkpw(raw_token.encode(), team.bearer_token_hash.encode()):
-                    return team
-            except (ValueError, TypeError) as e:
-                log.error("bcrypt check failed for team %s: %s", team_id_hint, e)
-        # If hint matched a team but token was wrong, fall through to reject
-        log.warning("Auth failed for team_id=%s", team_id_hint)
+    if not isinstance(team_id_hint, str) or not team_id_hint:
+        raise HTTPException(status_code=422, detail="team_id is required")
+    team = (await db.execute(select(Team).where(Team.id == team_id_hint))).scalar()
+    if team is None:
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    # ── Slow path: no hint, scan all teams ─────────────────────────────────
-    teams = (await db.execute(select(Team))).scalars().all()
-    for team in teams:
+    digest = hashlib.sha256(raw_token.encode()).hexdigest()
+    stored = team.bearer_token_hash
+    if stored.startswith("sha256:"):
+        valid = hmac.compare_digest(stored[7:], digest)
+    else:
         try:
-            if bcrypt.checkpw(raw_token.encode(), team.bearer_token_hash.encode()):
-                return team
-        except (ValueError, TypeError) as e:
-            log.error("bcrypt check failed for team %s: %s", team.id, e)
-            continue
+            valid = await asyncio.to_thread(bcrypt.checkpw, raw_token.encode(), stored.encode())
+        except (ValueError, TypeError) as error:
+            log.error("Legacy token check failed for team %s: %s", team_id_hint, error)
+            valid = False
+        if valid:
+            # Existing deployments keep their token. The first valid use upgrades
+            # its stored verifier so later events avoid a costly bcrypt check.
+            team.bearer_token_hash = f"sha256:{digest}"
+            await db.commit()
+            log.info("Upgraded token verifier for team %s", team.id)
 
-    log.warning("Auth failed — no matching token (scanned %d teams)", len(teams))
-    raise HTTPException(status_code=401, detail="Invalid token")
+    if not valid:
+        log.warning("Auth failed for team_id=%s", team_id_hint)
+        raise HTTPException(status_code=401, detail="Invalid token")
+    request.state.authenticated_team_id = team.id
+    return team

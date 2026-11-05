@@ -10,7 +10,7 @@
 
 Claw & Order is an automated scoring backend for a university red-team/blue-team cybersecurity competition. It ingests real-time telemetry from Kali Linux VMs running penetration tests, enforces competition rules (phase gating, CIDR ranges), detects milestones (DMZ compromise, LAN pivot, domain takeover), calculates time-weighted scores, and pushes live updates to a web dashboard (via SSE) and a Discord channel.
 
-**Our team built:** The entire backend communication pipeline — FastAPI server, API endpoints, authentication, phase enforcement, milestone detection, scoring engine, SSE streaming, Discord integration, reporter v2 deployment package (class-based with exponential backoff, smart retry buffer, graceful shutdown), operational scripts, and the full test suite.
+**Our team built:** The entire backend communication pipeline — FastAPI server, API endpoints, authentication, phase enforcement, milestone detection, scoring engine, SSE streaming, Discord integration, reporter v2 deployment package (class-based with exponential backoff, smart retry buffer, graceful shutdown), operational scripts, and the full test suite. For the current release process, use [DEPLOYMENT.md](DEPLOYMENT.md); this handoff includes historical architecture and schedule notes.
 
 **Another team handles:** The web dashboard frontend and Kali VM configuration.
 
@@ -67,7 +67,7 @@ claw-and-order/
 |   |   |-- events.py           # POST /api/events (main ingest)
 |   |   +-- stream.py           # GET /api/stream (SSE)
 |   +-- services/               # Business logic
-|       |-- auth.py             # Bearer token + bcrypt validation
+|       |-- auth.py             # Team scoped bearer validation; legacy bcrypt upgrades on use
 |       |-- phase.py            # Phase config loader, technique gating
 |       |-- sse.py              # SSE fan-out with bounded queues
 |       |-- discord_worker.py   # Discord bot + message dispatch
@@ -115,7 +115,7 @@ claw-and-order/
 **Team** — One row per competing team
 - `id` (PK, text) — e.g. `"team-alpha"`
 - `display_name`, `wan_ip`, `dmz_cidr`, `lan_cidr`
-- `bearer_token_hash` — bcrypt hash for API auth
+- `bearer_token_hash` — SHA-256 verifier for newly issued 256-bit random tokens; legacy bcrypt hashes upgrade after a valid use
 - `last_seen` — updated on each heartbeat (used by watchdog)
 
 **Event** — Every telemetry event from every reporter

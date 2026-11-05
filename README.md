@@ -4,9 +4,17 @@
 
 Teams deploy Kali Linux VMs to penetrate a target network across three timed phases. Claw & Order captures every action in real time, enforces competition rules, detects key milestones, calculates time-weighted scores, and pushes live updates to a dashboard and Discord.
 
+For the current two-repository release sequence, acceptance criteria, and rollback steps, use the [deployment readiness checklist](claw-and-order/docs/DEPLOYMENT.md). The historical schedule and handoff notes below are project background.
+
+For the student roster → Discord roles → dashboard pipeline, start with the [Cyberlabs handoff](CYBERLABS-START-HERE.md). It includes blank CSV/XLSX templates, reviewed imports, private registration, durable membership reconciliation, optional reviewed invitation email, and deployment examples. Student responsibility definitions remain a faculty input.
+
+The [audit report](claw-and-order/docs/AUDIT-2026-11-03.md), [human operations guide](claw-and-order/docs/HUMAN-OPERATIONS.md), [Hermes planner instructions](claw-and-order/docs/HERMES-INSTRUCTIONS.md) and [synthetic report examples](claw-and-order/docs/examples/README.md) define the reviewed change/approval/verification process.
+
 ---
 
 ## Team Roles
+
+These are development responsibilities, not student Discord roles. Faculty student role definitions are recorded separately in [ROLE-DEFINITIONS.md](claw-and-order/docs/ROLE-DEFINITIONS.md).
 
 | Member | Responsibility |
 |--------|---------------|
@@ -21,10 +29,10 @@ Teams deploy Kali Linux VMs to penetrate a target network across three timed pha
 ```bash
 cd claw-and-order
 
-# Python 3.14 required (3.15 alpha cannot compile pydantic-core)
-py -3.14 -m venv .venv314
-.venv314\Scripts\activate
-pip install -r requirements.txt
+# Python 3.12 is the CI/container baseline (Windows example).
+py -3.12 -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.lock
 pip install -r requirements-dev.txt
 
 # Configure environment
@@ -60,7 +68,7 @@ Operation-Open-Claw/
     |   |   |-- admin.py         # Health, phase, teams, reports
     |   |   +-- stream.py        # GET /api/stream (SSE)
     |   +-- services/            # Business logic
-    |       |-- auth.py          # Bearer token + bcrypt
+    |       |-- auth.py          # Team scoped bearer token verification
     |       |-- phase.py         # Phase config + technique gating
     |       |-- sse.py           # SSE fan-out
     |       |-- discord_worker.py
@@ -134,10 +142,15 @@ The reporter runs on each Kali VM and is the bridge between OpenClaw tool output
 **Key features:**
 - **`Reporter` class** — all state encapsulated, config passed as dict (testable, no module-level globals)
 - **Exponential backoff** — on POST failures, backs off 1s -> 2s -> 4s -> ... capped at 60s. Resets on success. Prevents log spam and connection flooding when backend is down
-- **Smart retry buffer** — failed events saved to disk JSONL. Buffer drain only triggers on reconnect (not every POST). Line count tracked in memory, no full file re-read on append
+- **Durable retry buffer** — failed events are fsynced to disk JSONL and replayed in order; the 500-event setting raises an alert without dropping older records
+- **Restart-safe telemetry cursor** — the reporter resumes the saved log position after restart and uses a stable source ID so replay does not double count
 - **Single TechniqueNormalizer** — imported from `technique_normalizer.py` (one class, one place to maintain, 98 match rules, 16 self-tests)
 - **Graceful shutdown** — SIGINT/SIGTERM handled cleanly with summary stats (events sent vs buffered)
-- **Heartbeats bypass backoff** — health signal always attempts to reach backend; successful heartbeat during outage triggers buffer drain
+- **Heartbeats bypass backoff** — health signal always attempts to reach backend, including during non-tool telemetry; successful heartbeat during outage triggers buffer drain
+
+The scoring backend saves milestone, phase, and VM-offline Discord alerts in a database outbox. Incoming Discord webhook URLs are the preferred alert delivery mode, with durable receipts per class destination, persistent rate-limit cooldowns, and quarantine for revoked hooks. See the [Discord handoff guide](claw-and-order/docs/discord-integration-guide.md). `/api/health` reports `discord_pending`; pending alerts retry after Discord or the backend restarts. The dashboard's Discord telemetry importer is separate and reads `[OCRT]` messages from configured channels. Adding a class or team requires provisioning its token and inventory; no fixed team count is built into the pipeline. Rerunning `scripts/provision_tokens.py` with an expanded team JSON creates tokens only for new teams and preserves existing tokens while updating their network metadata. Keep the generated config files secure; existing plaintext tokens cannot be recovered from the database.
+
+Scored events also enter `dashboard_outbox` in the event transaction. The dashboard reads them with a separate `EVENT_EXPORT_SECRET` and acknowledges each page after storage. This avoids missing events when concurrent database transactions commit out of ID order. `/api/health` reports `dashboard_pending` and the oldest pending age.
 
 **Usage:**
 ```bash
@@ -156,7 +169,7 @@ python reporter.py /path/to/config.json
 
 | Phase | What | Status |
 |-------|------|--------|
-| A | DB schema, auth (bcrypt + team_id hint), CIDR validation | Done |
+| A | DB schema, team scoped auth, CIDR validation | Done |
 | B | SSE streaming with bounded queues, keepalive | Done |
 | C | Phase enforcement from phases.json, milestone detection, time-weighted scoring | Done |
 | D | Discord bot integration, queue-based dispatch, reconnect guard | Done |
@@ -230,7 +243,7 @@ python scripts/reset_competition.py full
 ## Documentation
 
 - **[Technical Handoff](claw-and-order/docs/HANDOFF.md)** — Full architecture details, DB schema, hardening measures, critical rules
-- **[Discord Integration Guide](claw-and-order/docs/discord-integration-guide.md)** — Bot setup, architecture, FAQ, alert examples
+- **[Discord Integration Guide](claw-and-order/docs/discord-integration-guide.md)** — Webhook setup, class routing, permissions, recovery, and optional bot reader
 - **[Architecture Spec](Claw_and_Order_v2_Definitive_Architecture.docx)** — Original design document
 - **[Gap Analysis](Claw_and_Order_PreBuild_Gap_Analysis.docx)** — Pre-build analysis
 
@@ -247,7 +260,7 @@ python scripts/reset_competition.py full
 ```bash
 cd claw-and-order
 
-# Backend tests (38 tests)
+# Backend, reporter and enrollment regression suite
 python -m pytest tests/ -v
 
 # Reporter normalizer self-tests (16 tests)

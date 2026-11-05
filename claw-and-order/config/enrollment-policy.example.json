@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "guild_id": "REPLACE_WITH_SELECTED_SERVER_ID",
+  "invite_url": "https://discord.gg/REPLACE_WITH_INVITE",
+  "role_definitions": {},
+  "classes": [
+    {
+      "term_id": "REPLACE_WITH_TERM",
+      "class_id": "ClassA",
+      "discord_role_id": "REPLACE_WITH_CLASS_A_ROLE_ID",
+      "teams": {
+        "ClassA_01": {
+          "discord_role_id": "REPLACE_WITH_CLASS_A_TEAM_01_ROLE_ID",
+          "channel_ids": ["REPLACE_WITH_PRIVATE_TEAM_CHANNEL_ID"]
+        }
+      },
+      "student_roles": {}
+    },
+    {
+      "term_id": "REPLACE_WITH_TERM",
+      "class_id": "ClassB",
+      "discord_role_id": "REPLACE_WITH_CLASS_B_ROLE_ID",
+      "teams": {},
+      "student_roles": {}
+    }
+  ]
+}

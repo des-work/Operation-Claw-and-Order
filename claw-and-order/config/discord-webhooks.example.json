@@ -1,0 +1,12 @@
+[
+  {
+    "name": "class-a",
+    "url": "REPLACE_WITH_CLASS_A_DISCORD_WEBHOOK_URL",
+    "team_prefixes": ["ClassA_"]
+  },
+  {
+    "name": "class-b",
+    "url": "REPLACE_WITH_CLASS_B_DISCORD_WEBHOOK_URL",
+    "team_prefixes": ["ClassB_"]
+  }
+]

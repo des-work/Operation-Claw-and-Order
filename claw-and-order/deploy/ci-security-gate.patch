@@ -1,0 +1,10 @@
+diff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml
+index 817f26b..eeaa982 100644
+--- a/.github/workflows/ci.yml
++++ b/.github/workflows/ci.yml
+@@ -18,3 +18,5 @@ jobs:
+           cache-dependency-path: claw-and-order/requirements*.txt
+       - run: python -m pip install -r requirements.lock -r requirements-dev.txt
+       - run: python -m pytest tests -q
++      - run: python -m pip install pip-audit==2.10.1
++      - run: pip-audit -r requirements.lock --progress-spinner off
