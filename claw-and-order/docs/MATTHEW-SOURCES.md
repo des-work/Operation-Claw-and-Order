@@ -1,5 +1,13 @@
 # Sources, certainty and installed-inventory record
 
+## November 5 current-state correction
+
+The owner selected Hermes and the existing Discord server/webhooks. The actual installed Hermes version, service location, telemetry schema and formatter have not been inspected. Dashboard hosting is now Cloudflare Workers + D1; read the dashboard's docs/CLOUDFLARE.md and HERMES-DISCORD-ROSTER-READINESS.md for current configuration and launch gates. The Python enrollment/scoring service remains a separate Cyberlabs deployment.
+
+Current code evidence: the Discord reader requires a mapped posting webhook and `[OCRT]` text; native Hermes bot replies are not accepted telemetry. The optional reporter still expects OpenClaw-shaped tool.end records and a configured source log. Enrollment uses specific-member lookups and cannot discover Discord-only students. The backend validates targets against the authenticated team's DMZ/LAN ranges and does not implement a red-versus-blue matchup schedule. These are verified code behaviors, not verified Cyberlabs installation behavior.
+
+Product references rechecked November 5: [Hermes Discord gateway](https://hermes-agent.nousresearch.com/docs/user-guide/messaging/discord), [Hermes importers](https://hermes-agent.nousresearch.com/marketplace/agent-importers), [Discord effective permissions](https://docs.discord.com/developers/topics/permissions), and [Discord member listing](https://docs.discord.com/developers/resources/guild#list-guild-members). The member-list endpoint requires privileged GUILD_MEMBERS intent; the shipped registration worker does not request that intent.
+
 ## What is known and what must be checked onsite
 
 | Statement | Evidence | Status |

@@ -1,5 +1,7 @@
 # Claw & Order handoff to Cyberlabs
 
+**November 5 update — read first:** [Hermes, Discord visibility, roster reconciliation and red-team coverage](claw-and-order/docs/HERMES-DISCORD-ROSTER-READINESS.md). Hermes and the existing Discord server/webhooks are selected. Inspect real Hermes telemetry before declaring compatibility. Cloudflare Workers + D1 now hosts the dashboard; the separate Python enrollment/scoring service still requires Cyberlabs deployment confirmation. The update supersedes old server-choice and dashboard-hosting instructions in earlier packages.
+
 This release connects student rosters, reviewed team/role assignments, private Discord registration, optional invitation email delivery, and the existing Claw & Order dashboard/scoring pipelines.
 
 ## Start with these files
@@ -11,7 +13,7 @@ Start daily administration with [Human operations and change management](claw-an
 1. [Student enrollment operating guide](claw-and-order/docs/STUDENT-ENROLLMENT.md): architecture, configuration, exact commands, privacy boundaries, recovery, and acceptance checks.
 2. [Role definitions to complete](claw-and-order/docs/ROLE-DEFINITIONS.md): the faculty's student role definitions are still required. No student responsibility roles are guessed or enabled by default.
 3. `claw-and-order/templates/roster.xlsx` or `roster.csv`: blank import templates. One row represents one student in one class for one term.
-4. `claw-and-order/config/enrollment-policy.example.json`: choose the old or new Discord server and enter real class/team/channel/role IDs in a private copy.
+4. `claw-and-order/config/enrollment-policy.example.json`: use the selected existing Discord server and enter real class/team/channel/role IDs in a private copy.
 5. `claw-and-order/deploy/`: Linux service examples and a two-process container deployment. Keep the API and enrollment worker separate.
 6. [Whole exercise deployment gates](claw-and-order/docs/DEPLOYMENT.md): machine reporters, database backups, access policy, load/freshness, and production promotion.
 
@@ -31,7 +33,7 @@ Start daily administration with [Human operations and change management](claw-an
 | Input | Owner | Completion condition |
 | --- | --- | --- |
 | Student responsibility definitions | Faculty | Stable role keys, labels, duties, scope and approvals recorded in ROLE-DEFINITIONS.md |
-| Old/new Discord selection | Discord owner | One selected server ID and an invite pointing to that server |
+| Existing Discord inventory | Discord owner | Confirm the selected server ID, invite, hidden channels and each bot's effective access |
 | Class/team permissions | Discord owner | Role IDs and private channel IDs supplied; live preflight passes |
 | Roster and team network inventory | Faculty / lab staff | Stable student, term, class and scoring-team IDs agree across the roster, policy, reporter provisioning and topology |
 | Hosting and secrets | Cyberlabs | PostgreSQL, trusted TLS, restricted staff API access, service account, bot token, and separate admin/export secrets configured |

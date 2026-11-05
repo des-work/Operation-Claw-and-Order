@@ -1,5 +1,7 @@
 # Student enrollment operations
 
+**November 5 update:** the owner selected the existing Discord server/webhooks and Hermes. Read HERMES-DISCORD-ROSTER-READINESS.md before importing these classes: reconcile Discord-only participants with approved school records, verify hidden-channel access and approve red-team coverage. This worker uses specific registered-member lookups, not a full Discord member census. The existing private registration works for students already in the server; they need not leave and rejoin.
+
 For the current human-facing command sequence, change reports, targeted moves, named approvals and history, use [HUMAN-OPERATIONS.md](HUMAN-OPERATIONS.md). [HERMES-INSTRUCTIONS.md](HERMES-INSTRUCTIONS.md) defines the planner-only agent boundary. Change context and a human approver are required by the current API/CLI; regenerate older previews and update older operator scripts before this release.
 
 ## Architecture and boundaries
@@ -42,7 +44,7 @@ Invite the separate enrollment bot with `bot` and `applications.commands` scopes
 
 Set `ENROLLMENT_DISCORD_BOT_TOKEN` only in the worker's secret store. Alert webhooks and the optional Discord telemetry reader keep their existing independent configuration. `ENROLLMENT_EMAIL_DOMAINS` can restrict imported addresses to the school's exact domains, separated by commas.
 
-Choose the old or new server before the pilot. Retain old history separately. Switching a live roster to another server is an explicit migration: preserve student IDs, stop the old worker, review the new mappings, reconfigure/restart the worker, reconcile approved enrollments, and ensure students join the new server. Old server memberships are not silently revoked. Previously linked accounts do not need another identity claim; issue a server invite through the school and reconcile after joining. Replacing a student's linked Discord account requires staff review; the registration command refuses to take over an existing link.
+Use the owner-selected existing server for this launch and retain its history. If faculty later decides to switch servers, that is an explicit migration: preserve student IDs, stop the old worker, review the new mappings, reconfigure/restart the worker, reconcile approved enrollments, and ensure students join the new server. Old server memberships are not silently revoked. Previously linked accounts do not need another identity claim; issue a server invite through the school and reconcile after joining. Replacing a student's linked Discord account requires staff review; the registration command refuses to take over an existing link.
 
 ## Deploy
 

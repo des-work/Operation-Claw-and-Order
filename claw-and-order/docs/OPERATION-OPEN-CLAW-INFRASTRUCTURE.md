@@ -1,6 +1,8 @@
-# Operation Open Claw infrastructure and Discord communication
+# Operation Claw & Order infrastructure and Discord communication
 
 Prepared for Matthew and the Cyberlabs administrator
+
+**November 5 update:** the execution agent is now Hermes; OpenClaw references describe the former agent or legacy reporter assumptions. The owner retains the same Discord server and incoming webhooks. Current dashboard hosting is Cloudflare Workers + D1. Read HERMES-DISCORD-ROSTER-READINESS.md for actual compatibility findings, channel access, roster reconciliation and team coverage gates. The installed Hermes publisher has not been inspected. No native Hermes adapter or automatic telemetry migration is asserted.
 
 ## The existing Kali-to-Discord connection
 
@@ -10,7 +12,7 @@ The actual installed script, service name, trigger and payload were not supplied
 
 ```mermaid
 flowchart LR
-  K[Kali / OpenClaw activity] --> S[Existing Kali script]
+  K[Kali / Hermes activity] --> S[Inspected publisher / formatter]
   S --> W[Discord incoming webhook]
   W --> C[Configured Discord channel]
 ```
@@ -39,9 +41,9 @@ The current dashboard reader accepts plain message content in this exact contrac
 
 The team ID must match the scoring/roster/topology inventory. The target above is an example for an authorized lab operation, not a production address. Free-form messages and embeds are not automatically parsed. If the installed script uses another shape, review a formatter or use the reporter route below before enabling dashboard import.
 
-Set ALLOWED_CHANNELS and DISCORD_SOURCE_POLICY_FILE. Its version-1 JSON lists exact channel_id, webhook_id and permitted team_ids. Use the dashboard's config/discord-sources.example.json. These IDs are metadata, not the secret webhook URL/token. Every allowed channel needs a mapping. Only a mapped webhook can claim its listed teams; user messages, unknown hooks and cross-team claims are rejected and recorded.
+For the deployed Cloudflare Worker, set ALLOWED_CHANNELS and DISCORD_SOURCE_POLICY_JSON. Its version-1 JSON lists exact channel_id, webhook_id and permitted team_ids. Use the dashboard's config/discord-sources.example.json. DISCORD_SOURCE_POLICY_FILE applies only to the retained legacy Node implementation. These IDs are metadata, not the secret webhook URL/token. Every allowed channel needs a mapping. Only a mapped webhook can claim its listed teams; user messages, normal bot messages (including a native Hermes bot post), unknown hooks and cross-team claims are rejected and recorded. Do not weaken source validation to accommodate agent prose.
 
-Accepted messages use Discord's creation time, retain their message ID for deduplication and advance a durable cursor after storage. Replay preserves posting time; it cannot prove the tool's execution time. Fresh semester installations start at the channel head by default, preserving old channel history without importing last year's events. Decide any backfill before the first connection.
+Accepted messages use Discord's creation time, retain their message ID for deduplication and advance a durable cursor after storage. Replay preserves posting time; it cannot prove the tool's execution time. The deployed Cloudflare reader uses the fixed semester cutover 2026-11-04T21:12:10.000Z rather than setup time, so configuration delays do not discard newer posts. Older channel history remains outside the current dashboard. Do not reset cursors to hide backlog or replay duplicate posts.
 
 ## Implemented reporter/backend route
 
@@ -56,6 +58,8 @@ flowchart LR
 ```
 
 reporter.py reads the configured telemetry log, normalizes a tool.end record and posts to /api/events using a team credential. The backend validates target/phase/team, stores the event and scores milestones. Curated alerts go through an isolated Discord sender; scored events go through a store-before-ack dashboard export. reporter.py itself has no Discord posting client.
+
+This reporter still defaults to an OpenClaw log path and expects input.command, input.target and boolean success on tool.end records. A Hermes transcript or a path rename alone does not satisfy that contract. Other record types are skipped. Require an explicit configured source and a real schema/formatter pilot before adopting this route with Hermes.
 
 This route was rehearsed locally, not verified as the current Cyberlabs transport. Keep the existing publisher until a controlled pilot establishes the intended source. Outgoing milestone alerts are not the [OCRT] telemetry contract.
 
@@ -72,9 +76,10 @@ The original architecture describes a management network for the central backend
 | Remote operator to lab | Institutional VPN and Proxmox HTTPS under Cyberlabs policy |
 | Existing Kali script to Discord | Outbound HTTPS, normally port 443; limited posting webhook URL for its destination |
 | Optional Kali reporter to backend | Configured HTTPS API origin and per-team bearer credential |
-| Kali/OpenClaw to model service | Configured internal model API if deployed; confirm its actual host and port |
+| Kali/Hermes to model service | Configured model API if deployed; confirm the actual host, port, approved data handling and costs |
 | Backend sender to Discord | Outbound HTTPS; alert hook/legacy bot credentials remain on the backend |
-| Reader/enrollment bot to Discord | Outbound HTTPS and secure Gateway WebSocket; separate bot tokens on service hosts |
+| Cloudflare reader to Discord | Outbound HTTPS REST polling with its reader token; no persistent Gateway connection |
+| Enrollment worker / optional Hermes chat gateway to Discord | HTTPS and secure Gateway WebSocket as needed; separate bot identities and tokens on protected hosts |
 | Dashboard to backend | HTTPS export/acknowledgement with a distinct export-only credential |
 | Backend and worker to PostgreSQL | Private database connection, verified TLS for remote production hosts |
 

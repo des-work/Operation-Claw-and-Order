@@ -2,6 +2,8 @@
 
 Prepared for Matthew and the Cyberlabs administrator
 
+**Current deployment update (November 5):** Hermes replaces the former execution agent; retain the existing Discord server/webhooks. Read HERMES-DISCORD-ROSTER-READINESS.md first for verified code assumptions and the current roster/access/coverage process. Cloudflare Workers + D1 hosts the dashboard/API; the Python scoring/enrollment service remains separate. Earlier dashboard PostgreSQL/file-policy instructions apply to the legacy deployment, not the deployed Worker. Neither the installed Hermes telemetry format nor live Cyberlabs enrollment has been independently verified.
+
 ## What we are delivering
 
 We are extending the existing Operation Open Claw lab with an auditable student-to-Discord enrollment pipeline and a live team topology dashboard. The owner-confirmed Kali webhook/script connection remains in place; the reporter/backend path is an implemented option to verify before any cutover. Two classes can use the same system, students can belong to both classes, and additional teams/classes can be configured without a fixed team count in the code.
@@ -21,7 +23,7 @@ flowchart LR
 | Input | What to provide |
 | --- | --- |
 | Excel rosters | Use the supplied blank template or provide an explicit column map. Include stable student, term and class IDs. Teams and responsibilities may be blank. |
-| Selected Discord | Confirm old or new server, its server ID and a valid student invite. |
+| Selected Discord | Retain the existing server; confirm its server ID, a valid student invite, and hidden-channel access with an authorized administrator. |
 | Discord posting hooks | Preserve existing Kali hooks. Supply new/replacement hook URLs privately, labeled by producer, team/class and destination. Backend alert hooks are a separate purpose. |
 | Existing telemetry source | Record the Kali script, message format, channel ID, webhook ID and exact team IDs. The dashboard reader needs its own token and explicit source mapping. |
 | Enrollment bot setup | A separate bot application's token, class/team/responsibility role IDs and private channel IDs; grant only the documented permissions. |

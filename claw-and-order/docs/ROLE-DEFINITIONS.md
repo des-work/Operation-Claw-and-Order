@@ -1,5 +1,7 @@
 # Faculty student role definitions
 
+**Current classes (owner report, November 5):** Cassandra and Netsler each have blue teams; the red-team pool, coverage policy and stable class IDs require faculty confirmation. Existing Discord roles are observations, not the approved responsibility catalog. Review HERMES-DISCORD-ROSTER-READINESS.md before balancing students. Red-team coverage of a target does not make the attacker a member of that target's blue team, and responsibility roles do not change network/scoring scope.
+
 The repository defines development responsibilities for a Backend Team, Dashboard Team and VM Team. Those are not an authoritative catalog of student exercise roles. Red/blue competition context likewise does not define each student's duties or privileges. Faculty must supply the final catalog below.
 
 The shipped policy deliberately starts with `"role_definitions": {}` and empty `student_roles` mappings. Leave the roster's `role_key` blank while a student's responsibility is undecided. Class and team membership are separate from the responsibility key.
